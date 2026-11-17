@@ -7,6 +7,8 @@ import {
   SortDirection,
 } from '../types/earnings';
 import {
+  ActivityBreakdownItem,
+  buildActivityBreakdown,
   buildChannelBreakdown,
   buildChartSeries,
   formatCurrency,
@@ -16,6 +18,8 @@ interface EarningsChartPanelProps {
   records: EarningRecord[];
   selectedChannel: string;
   onSelectChannel: (channel: string) => void;
+  selectedActivity: string;
+  onSelectActivity: (activity: string) => void;
 }
 
 const GRANULARITY_OPTIONS: { value: ChartGranularity; label: string }[] = [
@@ -29,9 +33,12 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
   records,
   selectedChannel,
   onSelectChannel,
+  selectedActivity,
+  onSelectActivity,
 }) => {
   const [granularity, setGranularity] = useState<ChartGranularity>('monthly');
-  const [chartSort, setChartSort] = useState<SortDirection>('desc');
+  // Default chart time axis is ascending (left -> right chronologically increasing)
+  const [chartSort, setChartSort] = useState<SortDirection>('asc');
   const [showCumulativeOverlay, setShowCumulativeOverlay] = useState<boolean>(true);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
@@ -45,15 +52,20 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
     [records]
   );
 
+  const activities: ActivityBreakdownItem[] = useMemo(
+    () => buildActivityBreakdown(records),
+    [records]
+  );
+
   const totalAmount = useMemo(
     () => records.reduce((sum, r) => sum + r.rewardAmount, 0),
     [records]
   );
 
-  // SVG Layout dimensions: compact enough to scale cleanly on 375px phones without forced scrolling when <= 14 points
-  const needsHorizontalScroll = series.length > 16;
-  const width = needsHorizontalScroll ? Math.max(760, series.length * 44) : 760;
-  const height = 280;
+  // SVG Layout dimensions
+  const needsHorizontalScroll = series.length > 18;
+  const width = needsHorizontalScroll ? Math.max(880, series.length * 44) : 880;
+  const height = 285;
   const padLeft = 56;
   const padRight = granularity !== 'cumulative' && showCumulativeOverlay ? 58 : 20;
   const padTop = 20;
@@ -98,7 +110,7 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
 
   const barWidth =
     series.length > 0
-      ? Math.max(10, Math.min(42, (plotW / series.length) * 0.54))
+      ? Math.max(10, Math.min(44, (plotW / series.length) * 0.52))
       : 24;
 
   const cumulativeLinePath = useMemo(() => {
@@ -123,20 +135,22 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
     return `${cumulativeLinePath} L ${lastX.toFixed(1)} ${baseY} L ${firstX.toFixed(1)} ${baseY} Z`;
   }, [cumulativeLinePath, series.length, plotH]);
 
-  const labelStep = Math.max(1, Math.ceil(series.length / 8));
+  const labelStep = Math.max(1, Math.ceil(series.length / 10));
   const selectedPoint =
     activeIndex !== null && series[activeIndex]
       ? series[activeIndex]
-      : series[0] ?? null;
+      : chartSort === 'asc'
+        ? series[series.length - 1] ?? null
+        : series[0] ?? null;
 
   return (
     <section
       id="charts"
       aria-label="收益统计图表"
-      className="scroll-mt-16 grid grid-cols-1 xl:grid-cols-12 gap-4 sm:gap-6 items-stretch"
+      className="scroll-mt-16 space-y-4 sm:space-y-6"
     >
-      {/* Left 8 columns: Multi-granularity Time Series & Cumulative Chart */}
-      <div className="xl:col-span-8 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 flex flex-col">
+      {/* Top Full-Width Card: Time Series & Cumulative Trend Chart */}
+      <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 flex flex-col">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
           <div>
             <h2 className="text-base font-semibold text-slate-900">
@@ -148,7 +162,9 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
                 : '柱状展示周期收益，折线同步反映累计走势'}
               <span aria-hidden="true"> · </span>
               <span>
-                {chartSort === 'desc' ? '时间降序（最新在左）' : '时间升序（由早到晚）'}
+                {chartSort === 'asc'
+                  ? '时间从左往右递增（由早到晚）'
+                  : '时间从左往右递减（最新在左）'}
               </span>
             </p>
           </div>
@@ -182,21 +198,22 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
             {/* Chart Asc / Desc Toggle */}
             <button
               type="button"
-              onClick={() =>
-                setChartSort((prev) => (prev === 'desc' ? 'asc' : 'desc'))
-              }
+              onClick={() => {
+                setChartSort((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+                setActiveIndex(null);
+              }}
               title="切换图表时间升序或降序展示"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 min-h-[36px] text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
-              {chartSort === 'desc' ? (
+              {chartSort === 'asc' ? (
                 <>
-                  <ArrowDownWideNarrow className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
-                  <span>降序</span>
+                  <ArrowUpNarrowWide className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
+                  <span>时间升序</span>
                 </>
               ) : (
                 <>
-                  <ArrowUpNarrowWide className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
-                  <span>升序</span>
+                  <ArrowDownWideNarrow className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
+                  <span>时间降序</span>
                 </>
               )}
             </button>
@@ -219,15 +236,15 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
 
         {/* Chart Canvas */}
         {series.length === 0 ? (
-          <div className="flex-1 min-h-[240px] flex flex-col items-center justify-center text-center py-12">
+          <div className="min-h-[240px] flex flex-col items-center justify-center text-center py-12">
             <p className="text-sm font-medium text-slate-700">暂无符合筛选条件的收益数据</p>
             <p className="text-xs text-slate-500 mt-1">
               导入周期任务文件或新增零星收益后，这里将自动绘制多维图表。
             </p>
           </div>
         ) : (
-          <div className="relative mt-3 sm:mt-4 flex-1">
-            {/* Pinned Readout Strip (Works seamlessly with both hover and mobile tap) */}
+          <div className="relative mt-3 sm:mt-4">
+            {/* Pinned Readout Strip (hover & mobile tap) */}
             <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
               <div className="flex items-center gap-3 text-slate-500">
                 {granularity !== 'cumulative' && (
@@ -262,7 +279,7 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
               <svg
                 viewBox={`0 0 ${width} ${height}`}
                 className={`h-auto select-none ${
-                  needsHorizontalScroll ? 'min-w-[640px] w-full' : 'w-full'
+                  needsHorizontalScroll ? 'min-w-[680px] w-full' : 'w-full'
                 }`}
                 role="img"
                 aria-label="收益统计可视化图表"
@@ -413,7 +430,7 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
                   );
                 })}
 
-                {/* Interactive Hit Columns (supports both hover & mobile tap) */}
+                {/* Interactive Hit Columns */}
                 {series.map((pt, idx) => {
                   const colW = plotW / series.length;
                   const x = padLeft + colW * idx;
@@ -437,88 +454,177 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
         )}
       </div>
 
-      {/* Right 4 columns: Payment Platform / Channel Distribution */}
-      <div className="xl:col-span-4 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 flex flex-col">
-        <div className="flex items-center justify-between gap-2 pb-3 sm:pb-4 border-b border-slate-100">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">
-              支付平台渠道分布
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              点击渠道可快速筛选下方收益明细
-            </p>
+      {/* Bottom Two-Column Row: Channel Distribution + Activity Item Distribution */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 items-stretch">
+        {/* Card 1: Payment Platform / Channel Distribution */}
+        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 flex flex-col">
+          <div className="flex items-center justify-between gap-2 pb-3 sm:pb-4 border-b border-slate-100">
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">
+                支付平台渠道分布
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                点击任意渠道可快速筛选图表与收益明细
+              </p>
+            </div>
+            {selectedChannel !== 'all' && (
+              <button
+                type="button"
+                onClick={() => onSelectChannel('all')}
+                className="text-xs font-medium text-emerald-700 hover:text-emerald-800 whitespace-nowrap min-h-[36px] px-2 cursor-pointer"
+              >
+                查看全部
+              </button>
+            )}
           </div>
-          {selectedChannel !== 'all' && (
-            <button
-              type="button"
-              onClick={() => onSelectChannel('all')}
-              className="text-xs font-medium text-emerald-700 hover:text-emerald-800 whitespace-nowrap min-h-[36px] px-2 cursor-pointer"
-            >
-              查看全部
-            </button>
+
+          {channels.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center text-xs text-slate-500 py-10">
+              暂无渠道统计数据
+            </div>
+          ) : (
+            <div className="mt-3 sm:mt-4 space-y-2.5 flex-1 overflow-y-auto max-h-[290px] pr-1 ledger-scroll">
+              {channels.map((item) => {
+                const isActive = selectedChannel === item.channel;
+                return (
+                  <button
+                    key={item.channel}
+                    type="button"
+                    onClick={() =>
+                      onSelectChannel(isActive ? 'all' : item.channel)
+                    }
+                    className={`w-full text-left group rounded-lg p-2.5 transition-colors cursor-pointer min-h-[44px] ${
+                      isActive ? 'bg-emerald-50/90' : 'hover:bg-slate-50 active:bg-slate-100'
+                    }`}
+                  >
+                    <div className="flex items-baseline justify-between gap-2 text-sm">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className={`font-medium truncate ${
+                            isActive ? 'text-emerald-800' : 'text-slate-800'
+                          }`}
+                        >
+                          {item.channel}
+                        </span>
+                        <span className="text-xs text-slate-400 font-mono-num shrink-0">
+                          {item.count} 笔
+                        </span>
+                      </div>
+                      <div className="flex items-baseline gap-2 shrink-0 font-mono-num">
+                        <span className="text-xs text-slate-400">
+                          {item.share.toFixed(1)}%
+                        </span>
+                        <span className="font-semibold text-slate-900">
+                          {formatCurrency(item.amount)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="mt-1.5 h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-300 ${
+                          isActive ? 'bg-emerald-700' : 'bg-emerald-500/80 group-hover:bg-emerald-600'
+                        }`}
+                        style={{ width: `${Math.max(2, item.share)}%` }}
+                      />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           )}
+
+          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+            <span>覆盖渠道：{channels.length} 个</span>
+            <span className="font-mono-num text-slate-700 font-medium">
+              合计 {formatCurrency(totalAmount)}
+            </span>
+          </div>
         </div>
 
-        {channels.length === 0 ? (
-          <div className="flex-1 flex items-center justify-center text-xs text-slate-500 py-10">
-            暂无渠道统计数据
+        {/* Card 2: Activity Item Distribution */}
+        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 flex flex-col">
+          <div className="flex items-center justify-between gap-2 pb-3 sm:pb-4 border-b border-slate-100">
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">
+                活动事项分布
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                按活动/任务汇总收益排行，点击可联动筛选明细
+              </p>
+            </div>
+            {selectedActivity !== 'all' && (
+              <button
+                type="button"
+                onClick={() => onSelectActivity('all')}
+                className="text-xs font-medium text-emerald-700 hover:text-emerald-800 whitespace-nowrap min-h-[36px] px-2 cursor-pointer"
+              >
+                查看全部
+              </button>
+            )}
           </div>
-        ) : (
-          <div className="mt-3 sm:mt-4 space-y-2.5 flex-1 overflow-y-auto max-h-[290px] pr-1 ledger-scroll">
-            {channels.map((item) => {
-              const isActive = selectedChannel === item.channel;
-              return (
-                <button
-                  key={item.channel}
-                  type="button"
-                  onClick={() =>
-                    onSelectChannel(isActive ? 'all' : item.channel)
-                  }
-                  className={`w-full text-left group rounded-lg p-2.5 transition-colors cursor-pointer min-h-[44px] ${
-                    isActive ? 'bg-emerald-50/90' : 'hover:bg-slate-50 active:bg-slate-100'
-                  }`}
-                >
-                  <div className="flex items-baseline justify-between gap-2 text-sm">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span
-                        className={`font-medium truncate ${
-                          isActive ? 'text-emerald-800' : 'text-slate-800'
-                        }`}
-                      >
-                        {item.channel}
-                      </span>
-                      <span className="text-xs text-slate-400 font-mono-num shrink-0">
-                        {item.count} 笔
-                      </span>
-                    </div>
-                    <div className="flex items-baseline gap-2 shrink-0 font-mono-num">
-                      <span className="text-xs text-slate-400">
-                        {item.share.toFixed(1)}%
-                      </span>
-                      <span className="font-semibold text-slate-900">
-                        {formatCurrency(item.amount)}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="mt-1.5 h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all duration-300 ${
-                        isActive ? 'bg-emerald-700' : 'bg-emerald-500/80 group-hover:bg-emerald-600'
-                      }`}
-                      style={{ width: `${Math.max(2, item.share)}%` }}
-                    />
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        )}
 
-        <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-          <span>覆盖渠道数：{channels.length} 个</span>
-          <span className="font-mono-num text-slate-700 font-medium">
-            合计 {formatCurrency(totalAmount)}
-          </span>
+          {activities.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center text-xs text-slate-500 py-10">
+              暂无活动事项统计数据
+            </div>
+          ) : (
+            <div className="mt-3 sm:mt-4 space-y-2.5 flex-1 overflow-y-auto max-h-[290px] pr-1 ledger-scroll">
+              {activities.map((item) => {
+                const isActive = selectedActivity === item.activity;
+                return (
+                  <button
+                    key={item.activity}
+                    type="button"
+                    onClick={() =>
+                      onSelectActivity(isActive ? 'all' : item.activity)
+                    }
+                    className={`w-full text-left group rounded-lg p-2.5 transition-colors cursor-pointer min-h-[44px] ${
+                      isActive ? 'bg-emerald-50/90' : 'hover:bg-slate-50 active:bg-slate-100'
+                    }`}
+                  >
+                    <div className="flex items-baseline justify-between gap-2 text-sm">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className={`font-medium truncate ${
+                            isActive ? 'text-emerald-800' : 'text-slate-800'
+                          }`}
+                          title={item.activity}
+                        >
+                          {item.activity}
+                        </span>
+                        <span className="text-xs text-slate-400 font-mono-num shrink-0">
+                          {item.count} 笔
+                        </span>
+                      </div>
+                      <div className="flex items-baseline gap-2 shrink-0 font-mono-num">
+                        <span className="text-xs text-slate-400">
+                          {item.share.toFixed(1)}%
+                        </span>
+                        <span className="font-semibold text-slate-900">
+                          {formatCurrency(item.amount)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="mt-1.5 h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-300 ${
+                          isActive ? 'bg-slate-800' : 'bg-slate-600/80 group-hover:bg-slate-800'
+                        }`}
+                        style={{ width: `${Math.max(2, item.share)}%` }}
+                      />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+            <span>覆盖活动：{activities.length} 项</span>
+            <span className="font-mono-num text-slate-700 font-medium">
+              合计 {formatCurrency(totalAmount)}
+            </span>
+          </div>
         </div>
       </div>
     </section>

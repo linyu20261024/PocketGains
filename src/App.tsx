@@ -32,6 +32,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sourceFilter, setSourceFilter] = useState<'all' | EntrySourceType>('all');
   const [channelFilter, setChannelFilter] = useState('all');
+  const [activityFilter, setActivityFilter] = useState('all');
   const [dateRangePreset, setDateRangePreset] = useState<DateRangePreset>('all');
   const [sortField, setSortField] = useState<SortField>('dateTime');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
@@ -87,6 +88,7 @@ export default function App() {
     const filtered = records.filter((rec) => {
       if (sourceFilter !== 'all' && rec.sourceType !== sourceFilter) return false;
       if (channelFilter !== 'all' && rec.platformChannel !== channelFilter) return false;
+      if (activityFilter !== 'all' && (rec.activityItem?.trim() || '零星收益') !== activityFilter) return false;
 
       const dateOnly = rec.dateTime.slice(0, 10);
       if (dateRangePreset === 'ytd' && !dateOnly.startsWith(yearPrefix)) {
@@ -120,6 +122,7 @@ export default function App() {
     searchQuery,
     sourceFilter,
     channelFilter,
+    activityFilter,
     dateRangePreset,
     sortField,
     sortDirection,
@@ -178,6 +181,7 @@ export default function App() {
     setSearchQuery('');
     setSourceFilter('all');
     setChannelFilter('all');
+    setActivityFilter('all');
     setDateRangePreset('all');
   };
 
@@ -185,6 +189,7 @@ export default function App() {
     Boolean(searchQuery) ||
     sourceFilter !== 'all' ||
     channelFilter !== 'all' ||
+    activityFilter !== 'all' ||
     dateRangePreset !== 'all';
 
   return (
@@ -297,11 +302,13 @@ export default function App() {
           latestDateTime={latestDateTime}
         />
 
-        {/* Interactive Charts & Channel Distribution */}
+        {/* Interactive Charts & Channel / Activity Distributions */}
         <EarningsChartPanel
           records={filteredAndSortedRecords}
           selectedChannel={channelFilter}
           onSelectChannel={setChannelFilter}
+          selectedActivity={activityFilter}
+          onSelectActivity={setActivityFilter}
         />
 
         {/* Detailed Earnings Ledger Table */}

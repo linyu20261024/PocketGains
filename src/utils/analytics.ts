@@ -125,6 +125,35 @@ export function buildChannelBreakdown(records: EarningRecord[]): ChannelBreakdow
     .sort((a, b) => b.amount - a.amount);
 }
 
+export interface ActivityBreakdownItem {
+  activity: string;
+  amount: number;
+  count: number;
+  share: number; // 0-100
+}
+
+export function buildActivityBreakdown(records: EarningRecord[]): ActivityBreakdownItem[] {
+  const total = records.reduce((sum, r) => sum + r.rewardAmount, 0);
+  const map = new Map<string, { amount: number; count: number }>();
+
+  for (const rec of records) {
+    const activity = rec.activityItem?.trim() || '零星收益';
+    const existing = map.get(activity) || { amount: 0, count: 0 };
+    existing.amount = Math.round((existing.amount + rec.rewardAmount) * 100) / 100;
+    existing.count += 1;
+    map.set(activity, existing);
+  }
+
+  return Array.from(map.entries())
+    .map(([activity, stats]) => ({
+      activity,
+      amount: stats.amount,
+      count: stats.count,
+      share: total > 0 ? Math.round((stats.amount / total) * 1000) / 10 : 0,
+    }))
+    .sort((a, b) => b.amount - a.amount);
+}
+
 export interface KpiMetrics {
   totalCumulative: number;
   currentYearAmount: number;
