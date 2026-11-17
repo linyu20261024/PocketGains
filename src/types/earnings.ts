@@ -53,6 +53,12 @@ export interface ParsedImportPreview {
   rawRows: Record<string, unknown>[];
   mapping: ColumnMapping;
   candidates: ImportCandidateRow[];
+  detectedFormat?: 'recurring_backup' | 'tabular';
+  recurringSummary?: {
+    version: number;
+    ruleCount: number;
+    recordCount: number;
+  };
   stats: {
     totalRows: number;
     newCount: number;

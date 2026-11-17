@@ -33,7 +33,7 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
   const [granularity, setGranularity] = useState<ChartGranularity>('monthly');
   const [chartSort, setChartSort] = useState<SortDirection>('desc');
   const [showCumulativeOverlay, setShowCumulativeOverlay] = useState<boolean>(true);
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
   const series = useMemo(
     () => buildChartSeries(records, granularity, chartSort),
@@ -50,13 +50,14 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
     [records]
   );
 
-  // SVG Layout dimensions
-  const width = 820;
-  const height = 290;
-  const padLeft = 64;
-  const padRight = granularity !== 'cumulative' && showCumulativeOverlay ? 68 : 24;
-  const padTop = 24;
-  const padBottom = 42;
+  // SVG Layout dimensions: compact enough to scale cleanly on 375px phones without forced scrolling when <= 14 points
+  const needsHorizontalScroll = series.length > 16;
+  const width = needsHorizontalScroll ? Math.max(760, series.length * 44) : 760;
+  const height = 280;
+  const padLeft = 56;
+  const padRight = granularity !== 'cumulative' && showCumulativeOverlay ? 58 : 20;
+  const padTop = 20;
+  const padBottom = 40;
   const plotW = width - padLeft - padRight;
   const plotH = height - padTop - padBottom;
 
@@ -66,7 +67,6 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
   );
   const maxCumulative = Math.max(10, ...series.map((p) => p.cumulativeAmount));
 
-  // Nice rounded ceiling for axis
   const ceilAxis = (val: number) => {
     if (val <= 10) return 10;
     const mag = Math.pow(10, Math.floor(Math.log10(val)));
@@ -82,7 +82,6 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
 
   const yMaxPrimary = ceilAxis(maxPeriod);
   const yMaxCumulative = ceilAxis(maxCumulative);
-
   const yTicks = [0, 0.25, 0.5, 0.75, 1];
 
   const getX = (idx: number) => {
@@ -99,7 +98,7 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
 
   const barWidth =
     series.length > 0
-      ? Math.max(8, Math.min(42, (plotW / series.length) * 0.54))
+      ? Math.max(10, Math.min(42, (plotW / series.length) * 0.54))
       : 24;
 
   const cumulativeLinePath = useMemo(() => {
@@ -124,29 +123,32 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
     return `${cumulativeLinePath} L ${lastX.toFixed(1)} ${baseY} L ${firstX.toFixed(1)} ${baseY} Z`;
   }, [cumulativeLinePath, series.length, plotH]);
 
-  const labelStep = Math.max(1, Math.ceil(series.length / 10));
-  const hoveredPoint = hoveredIndex !== null ? series[hoveredIndex] ?? null : null;
+  const labelStep = Math.max(1, Math.ceil(series.length / 8));
+  const selectedPoint =
+    activeIndex !== null && series[activeIndex]
+      ? series[activeIndex]
+      : series[0] ?? null;
 
   return (
     <section
       id="charts"
       aria-label="收益统计图表"
-      className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-stretch"
+      className="scroll-mt-16 grid grid-cols-1 xl:grid-cols-12 gap-4 sm:gap-6 items-stretch"
     >
       {/* Left 8 columns: Multi-granularity Time Series & Cumulative Chart */}
-      <div className="xl:col-span-8 bg-white border border-slate-200 rounded-xl p-5 sm:p-6 flex flex-col">
-        <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-100">
+      <div className="xl:col-span-8 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 flex flex-col">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
           <div>
             <h2 className="text-base font-semibold text-slate-900">
               收益趋势分析
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
               {granularity === 'cumulative'
-                ? '展示各时间节点截至当日的累计总收益走势'
-                : '柱状展示周期净收益，折线同步反映累计总收益变化'}
+                ? '截至各时间节点的累计总收益走势'
+                : '柱状展示周期收益，折线同步反映累计走势'}
               <span aria-hidden="true"> · </span>
               <span>
-                {chartSort === 'desc' ? '当前时间倒序（最新在左）' : '当前时间升序（由早到晚）'}
+                {chartSort === 'desc' ? '时间降序（最新在左）' : '时间升序（由早到晚）'}
               </span>
             </p>
           </div>
@@ -164,9 +166,9 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
                   type="button"
                   onClick={() => {
                     setGranularity(opt.value);
-                    setHoveredIndex(null);
+                    setActiveIndex(null);
                   }}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  className={`px-2.5 sm:px-3 py-1.5 min-h-[34px] text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                     granularity === opt.value
                       ? 'bg-white text-slate-900 shadow-xs'
                       : 'text-slate-600 hover:text-slate-900'
@@ -184,7 +186,7 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
                 setChartSort((prev) => (prev === 'desc' ? 'asc' : 'desc'))
               }
               title="切换图表时间升序或降序展示"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 min-h-[36px] text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               {chartSort === 'desc' ? (
                 <>
@@ -203,7 +205,7 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
               <button
                 type="button"
                 onClick={() => setShowCumulativeOverlay((v) => !v)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                className={`px-3 py-1.5 min-h-[36px] text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                   showCumulativeOverlay
                     ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
                     : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
@@ -217,17 +219,17 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
 
         {/* Chart Canvas */}
         {series.length === 0 ? (
-          <div className="flex-1 min-h-[260px] flex flex-col items-center justify-center text-center py-12">
+          <div className="flex-1 min-h-[240px] flex flex-col items-center justify-center text-center py-12">
             <p className="text-sm font-medium text-slate-700">暂无符合筛选条件的收益数据</p>
             <p className="text-xs text-slate-500 mt-1">
               导入周期任务文件或新增零星收益后，这里将自动绘制多维图表。
             </p>
           </div>
         ) : (
-          <div className="relative mt-4 flex-1">
-            {/* Hover Info Bar (stable layout, zero jumping) */}
-            <div className="mb-2 min-h-[24px] flex flex-wrap items-center justify-between gap-2 text-xs">
-              <div className="flex items-center gap-4 text-slate-500">
+          <div className="relative mt-3 sm:mt-4 flex-1">
+            {/* Pinned Readout Strip (Works seamlessly with both hover and mobile tap) */}
+            <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-3 text-slate-500">
                 {granularity !== 'cumulative' && (
                   <span className="inline-flex items-center gap-1.5">
                     <span className="w-2.5 h-2.5 rounded-xs bg-emerald-600 inline-block" aria-hidden="true" />
@@ -242,31 +244,29 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
                 )}
               </div>
 
-              {hoveredPoint ? (
-                <div className="flex items-center gap-3 font-mono-num text-slate-800 bg-slate-50 border border-slate-200 px-2.5 py-0.5 rounded">
-                  <span className="font-medium">{hoveredPoint.key}</span>
+              {selectedPoint && (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono-num text-slate-800 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-md text-[11px] sm:text-xs">
+                  <span className="font-semibold">{selectedPoint.key}</span>
                   <span className="text-emerald-700 font-semibold">
-                    当期 {formatCurrency(hoveredPoint.periodAmount)}
+                    当期 {formatCurrency(selectedPoint.periodAmount)}
                   </span>
                   <span className="text-slate-600">
-                    累计 {formatCurrency(hoveredPoint.cumulativeAmount)}
+                    累计 {formatCurrency(selectedPoint.cumulativeAmount)}
                   </span>
-                  <span className="text-slate-500">{hoveredPoint.count} 笔</span>
-                </div>
-              ) : (
-                <div className="text-slate-400">
-                  鼠标悬停图表节点查看当期与累计明细
+                  <span className="text-slate-500">{selectedPoint.count} 笔</span>
                 </div>
               )}
             </div>
 
-            <div className="w-full overflow-x-auto">
+            <div className="w-full overflow-x-auto ledger-scroll">
               <svg
                 viewBox={`0 0 ${width} ${height}`}
-                className="w-full h-auto min-w-[540px] select-none"
+                className={`h-auto select-none ${
+                  needsHorizontalScroll ? 'min-w-[640px] w-full' : 'w-full'
+                }`}
                 role="img"
                 aria-label="收益统计可视化图表"
-                onMouseLeave={() => setHoveredIndex(null)}
+                onMouseLeave={() => setActiveIndex(null)}
               >
                 <defs>
                   <linearGradient id="cumAreaGrad" x1="0" y1="0" x2="0" y2="1">
@@ -292,9 +292,9 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
                       />
                       <text
                         x={padLeft - 8}
-                        y={y + 3.5}
+                        y={y + 4}
                         textAnchor="end"
-                        className="fill-slate-400 text-[10px]"
+                        className="fill-slate-400 text-[11px]"
                         style={{ fontFamily: 'var(--font-mono)' }}
                       >
                         ¥{valPrimary >= 1000 ? `${(valPrimary / 1000).toFixed(1)}k` : valPrimary.toFixed(0)}
@@ -302,9 +302,9 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
                       {granularity !== 'cumulative' && showCumulativeOverlay && (
                         <text
                           x={width - padRight + 8}
-                          y={y + 3.5}
+                          y={y + 4}
                           textAnchor="start"
-                          className="fill-slate-400 text-[10px]"
+                          className="fill-slate-400 text-[11px]"
                           style={{ fontFamily: 'var(--font-mono)' }}
                         >
                           ¥{valCum >= 1000 ? `${(valCum / 1000).toFixed(1)}k` : valCum.toFixed(0)}
@@ -314,12 +314,12 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
                   );
                 })}
 
-                {/* Hover vertical guide line */}
-                {hoveredIndex !== null && series[hoveredIndex] && (
+                {/* Active/Hover vertical guide line */}
+                {activeIndex !== null && series[activeIndex] && (
                   <line
-                    x1={getX(hoveredIndex)}
+                    x1={getX(activeIndex)}
                     y1={padTop}
-                    x2={getX(hoveredIndex)}
+                    x2={getX(activeIndex)}
                     y2={padTop + plotH}
                     stroke="#CBD5E1"
                     strokeDasharray="3 3"
@@ -327,18 +327,18 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
                   />
                 )}
 
-                {/* Cumulative Area (when in cumulative mode) */}
+                {/* Cumulative Area */}
                 {granularity === 'cumulative' && series.length > 1 && (
                   <path d={cumulativeAreaPath} fill="url(#cumAreaGrad)" />
                 )}
 
-                {/* Period Bars (when in daily/monthly/yearly mode) */}
+                {/* Period Bars */}
                 {granularity !== 'cumulative' &&
                   series.map((pt, idx) => {
                     const cx = getX(idx);
                     const y = getYPrimary(pt.periodAmount);
-                    const barH = Math.max(2, padTop + plotH - y);
-                    const isHovered = hoveredIndex === idx;
+                    const barH = Math.max(3, padTop + plotH - y);
+                    const isFocused = activeIndex === idx;
                     return (
                       <rect
                         key={pt.key}
@@ -348,8 +348,8 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
                         height={barH}
                         rx={3}
                         className="transition-opacity duration-150"
-                        fill={isHovered ? '#047857' : '#10B981'}
-                        opacity={hoveredIndex !== null && !isHovered ? 0.55 : 0.92}
+                        fill={isFocused ? '#047857' : '#10B981'}
+                        opacity={activeIndex !== null && !isFocused ? 0.55 : 0.92}
                       />
                     );
                   })}
@@ -374,13 +374,13 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
                           granularity === 'cumulative'
                             ? getYPrimary(pt.cumulativeAmount)
                             : getYCumulative(pt.cumulativeAmount);
-                        const isHovered = hoveredIndex === idx;
+                        const isFocused = activeIndex === idx;
                         return (
                           <circle
                             key={`dot-${pt.key}`}
                             cx={cx}
                             cy={cy}
-                            r={isHovered ? 4.5 : series.length <= 18 ? 3 : 2}
+                            r={isFocused ? 5 : series.length <= 18 ? 3.5 : 2.5}
                             fill={granularity === 'cumulative' ? '#047857' : '#1E293B'}
                             stroke="#FFFFFF"
                             strokeWidth={1.5}
@@ -401,10 +401,10 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
                     <text
                       key={`lbl-${pt.key}`}
                       x={getX(idx)}
-                      y={height - 14}
+                      y={height - 12}
                       textAnchor="middle"
-                      className={`text-[10px] ${
-                        hoveredIndex === idx ? 'fill-slate-900 font-semibold' : 'fill-slate-500'
+                      className={`text-[11px] ${
+                        activeIndex === idx ? 'fill-slate-900 font-semibold' : 'fill-slate-500'
                       }`}
                       style={{ fontFamily: 'var(--font-mono)' }}
                     >
@@ -413,7 +413,7 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
                   );
                 })}
 
-                {/* Invisible Interactive Columns for Reliable Hover */}
+                {/* Interactive Hit Columns (supports both hover & mobile tap) */}
                 {series.map((pt, idx) => {
                   const colW = plotW / series.length;
                   const x = padLeft + colW * idx;
@@ -425,8 +425,9 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
                       width={colW}
                       height={plotH + 24}
                       fill="transparent"
-                      className="cursor-crosshair"
-                      onMouseEnter={() => setHoveredIndex(idx)}
+                      className="cursor-pointer"
+                      onMouseEnter={() => setActiveIndex(idx)}
+                      onClick={() => setActiveIndex(idx)}
                     />
                   );
                 })}
@@ -437,8 +438,8 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
       </div>
 
       {/* Right 4 columns: Payment Platform / Channel Distribution */}
-      <div className="xl:col-span-4 bg-white border border-slate-200 rounded-xl p-5 sm:p-6 flex flex-col">
-        <div className="flex items-center justify-between gap-2 pb-4 border-b border-slate-100">
+      <div className="xl:col-span-4 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 flex flex-col">
+        <div className="flex items-center justify-between gap-2 pb-3 sm:pb-4 border-b border-slate-100">
           <div>
             <h2 className="text-base font-semibold text-slate-900">
               支付平台渠道分布
@@ -451,7 +452,7 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
             <button
               type="button"
               onClick={() => onSelectChannel('all')}
-              className="text-xs font-medium text-emerald-700 hover:text-emerald-800 whitespace-nowrap cursor-pointer"
+              className="text-xs font-medium text-emerald-700 hover:text-emerald-800 whitespace-nowrap min-h-[36px] px-2 cursor-pointer"
             >
               查看全部
             </button>
@@ -459,11 +460,11 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
         </div>
 
         {channels.length === 0 ? (
-          <div className="flex-1 flex items-center justify-center text-xs text-slate-500 py-12">
+          <div className="flex-1 flex items-center justify-center text-xs text-slate-500 py-10">
             暂无渠道统计数据
           </div>
         ) : (
-          <div className="mt-4 space-y-3.5 flex-1 overflow-y-auto max-h-[290px] pr-1 ledger-scroll">
+          <div className="mt-3 sm:mt-4 space-y-2.5 flex-1 overflow-y-auto max-h-[290px] pr-1 ledger-scroll">
             {channels.map((item) => {
               const isActive = selectedChannel === item.channel;
               return (
@@ -473,8 +474,8 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
                   onClick={() =>
                     onSelectChannel(isActive ? 'all' : item.channel)
                   }
-                  className={`w-full text-left group rounded-lg p-2 -mx-2 transition-colors cursor-pointer ${
-                    isActive ? 'bg-emerald-50/80' : 'hover:bg-slate-50'
+                  className={`w-full text-left group rounded-lg p-2.5 transition-colors cursor-pointer min-h-[44px] ${
+                    isActive ? 'bg-emerald-50/90' : 'hover:bg-slate-50 active:bg-slate-100'
                   }`}
                 >
                   <div className="flex items-baseline justify-between gap-2 text-sm">

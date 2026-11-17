@@ -51,6 +51,7 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<ParsedImportPreview | null>(null);
   const [showMapping, setShowMapping] = useState(false);
+  const [useExpectedFallback, setUseExpectedFallback] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
   const [parseError, setParseError] = useState('');
 
@@ -60,6 +61,7 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
     setSelectedFile(null);
     setPreview(null);
     setShowMapping(false);
+    setUseExpectedFallback(false);
     setParseError('');
   };
 
@@ -71,12 +73,19 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
   const processFile = async (
     file: File,
     mode: EntrySourceType,
-    sheetName?: string
+    sheetName?: string,
+    expectedFallback = useExpectedFallback
   ) => {
     setIsParsing(true);
     setParseError('');
     try {
-      const parsed = await parseImportFile(file, existingRecords, mode, sheetName);
+      const parsed = await parseImportFile(
+        file,
+        existingRecords,
+        mode,
+        sheetName,
+        { useExpectedFallback: expectedFallback }
+      );
       setSelectedFile(file);
       setPreview(parsed);
       if (!parsed.mapping.dateTime || !parsed.mapping.rewardAmount) {
@@ -118,6 +127,13 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
         preview.fileName
       );
       setPreview({ ...preview, candidates, stats });
+    }
+  };
+
+  const handleToggleExpectedFallback = (checked: boolean) => {
+    setUseExpectedFallback(checked);
+    if (selectedFile) {
+      void processFile(selectedFile, importMode, preview?.selectedSheet, checked);
     }
   };
 
@@ -206,6 +222,7 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
       rawRows: sampleRaw,
       mapping,
       candidates,
+      detectedFormat: 'tabular',
       stats,
     });
   };
@@ -224,14 +241,17 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-[1px] p-4"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/40 backdrop-blur-[1px] p-0 sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="import-modal-title"
     >
-      <div className="bg-white border border-slate-200 rounded-xl shadow-xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-t-2xl sm:rounded-xl shadow-xl w-full max-w-4xl max-h-[92dvh] flex flex-col overflow-hidden">
+        {/* Mobile grab handle */}
+        <div className="sm:hidden w-10 h-1 bg-slate-300 rounded-full mx-auto mt-2.5 shrink-0" />
+
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between shrink-0">
+        <div className="px-5 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200 flex items-center justify-between shrink-0">
           <div>
             <h3
               id="import-modal-title"
@@ -240,23 +260,23 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
               导入周期任务与外部收益数据
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              支持 Excel (.xlsx / .xls)、CSV 与 JSON 格式，自动提取有效收益并按指纹拦截重复数据
+              支持周期任务备份 JSON（v2/v3）及 Excel (.xlsx/.xls) / CSV，自动提取有效现金收益并拦截重复
             </p>
           </div>
           <button
             type="button"
             onClick={handleClose}
             aria-label="关闭导入弹窗"
-            className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+            className="p-2 min-h-[40px] min-w-[40px] flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
 
         {/* Body */}
-        <div className="p-6 overflow-y-auto space-y-5 flex-1 ledger-scroll">
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-4 flex-1 ledger-scroll">
           {/* Import Mode + Template Actions */}
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
             <div
               role="group"
               aria-label="导入数据类型"
@@ -271,7 +291,7 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                周期任务数据提取
+                周期任务提取
               </button>
               <button
                 type="button"
@@ -282,7 +302,7 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                批量零星收益导入
+                批量零星导入
               </button>
             </div>
 
@@ -290,17 +310,17 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
               <button
                 type="button"
                 onClick={handleLoadSamplePeriodicBatch}
-                className="px-3 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors cursor-pointer"
+                className="px-3 py-2 min-h-[36px] text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors cursor-pointer"
               >
-                试用示例周期任务数据
+                试用示例周期任务
               </button>
               <button
                 type="button"
                 onClick={downloadPeriodicTemplate}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-2 min-h-[36px] text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
-                <span>下载 Excel 导入模板</span>
+                <span>下载 Excel 模板</span>
               </button>
             </div>
           </div>
@@ -309,22 +329,22 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
           <label
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleDrop}
-            className="flex flex-col items-center justify-center border border-dashed border-slate-300 hover:border-emerald-500 bg-slate-50/70 hover:bg-emerald-50/30 rounded-xl p-6 text-center transition-colors cursor-pointer"
+            className="flex flex-col items-center justify-center border border-dashed border-slate-300 hover:border-emerald-500 bg-slate-50/70 hover:bg-emerald-50/30 rounded-xl p-5 sm:p-6 text-center transition-colors cursor-pointer"
           >
             <Upload className="w-6 h-6 text-slate-400 mb-2" aria-hidden="true" />
-            <span className="text-sm font-medium text-slate-800">
+            <span className="text-sm font-medium text-slate-800 break-all">
               {isParsing
-                ? '正在解析表格并校验去重指纹...'
+                ? '正在解析文件并校验去重指纹...'
                 : preview
-                  ? `已载入：${preview.fileName}（点击或拖拽替换文件）`
-                  : '点击选择或拖拽周期任务导出文件至此'}
+                  ? `已载入：${preview.fileName}（点击替换）`
+                  : '点击选择周期任务备份 JSON 或 Excel 文件'}
             </span>
             <span className="text-xs text-slate-500 mt-1">
-              兼容 .xlsx / .xls / .csv / .json；多次导入同一周期导出表不会产生重复收益
+              兼容「周期任务与收益提醒助手」导出的 .json 备份，及 .xlsx / .xls / .csv
             </span>
             <input
               type="file"
-              accept=".xlsx,.xls,.csv,.json"
+              accept=".json,.xlsx,.xls,.csv,application/json"
               onChange={handleFileInput}
               className="hidden"
             />
@@ -337,21 +357,49 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
             </div>
           )}
 
+          {/* Recognized RecurringCheck-inReminders Backup Banner */}
+          {preview?.detectedFormat === 'recurring_backup' && preview.recurringSummary && (
+            <div className="p-3.5 bg-emerald-50/80 border border-emerald-200 rounded-lg space-y-2 text-xs text-emerald-950">
+              <div className="font-medium">
+                已自动识别「周期任务提醒助手」v{preview.recurringSummary.version} 备份文件：共{' '}
+                <span className="font-mono-num font-semibold">
+                  {preview.recurringSummary.ruleCount}
+                </span>{' '}
+                条规则 ·{' '}
+                <span className="font-mono-num font-semibold">
+                  {preview.recurringSummary.recordCount}
+                </span>{' '}
+                条打卡记录，已自动关联规则并提取已完成（done）的人民币现金（CNY）收益。
+              </div>
+              <label className="inline-flex items-center gap-2 text-slate-700 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={useExpectedFallback}
+                  onChange={(e) => handleToggleExpectedFallback(e.target.checked)}
+                  className="rounded border-slate-300 text-emerald-700 focus:ring-emerald-600"
+                />
+                <span>
+                  若已完成记录未填写实际收益（actual），则按预期金额（expected）补充提取
+                </span>
+              </label>
+            </div>
+          )}
+
           {/* Preview Results */}
           {preview && (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {/* Sheet selector + Column mapping toggle */}
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2.5">
                   {preview.sheetNames.length > 1 && selectedFile && (
-                    <div className="flex items-center gap-2 text-xs">
+                    <div className="flex items-center gap-1.5 text-xs">
                       <span className="text-slate-500">工作表：</span>
                       <select
                         value={preview.selectedSheet}
                         onChange={(e) =>
                           void processFile(selectedFile, importMode, e.target.value)
                         }
-                        className="px-2.5 py-1 bg-white border border-slate-200 rounded-md text-slate-800"
+                        className="px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-slate-800"
                       >
                         {preview.sheetNames.map((s) => (
                           <option key={s} value={s}>
@@ -365,7 +413,7 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setShowMapping((v) => !v)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 min-h-[34px] text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg cursor-pointer"
                   >
                     <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
                     <span>{showMapping ? '收起字段映射' : '调整字段映射'}</span>
@@ -373,25 +421,25 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
                 </div>
 
                 {/* Dedupe Summary Strip */}
-                <div className="flex flex-wrap items-center gap-4 text-xs font-mono-num">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-mono-num">
                   <span className="text-slate-600">
-                    解析 {preview.stats.totalRows} 行
+                    共 {preview.stats.totalRows} 行
                   </span>
                   <span className="text-emerald-700 font-semibold">
-                    本次新增 {preview.stats.newCount} 笔 ({formatCurrency(preview.stats.newTotalAmount)})
+                    新增 {preview.stats.newCount} 笔 ({formatCurrency(preview.stats.newTotalAmount)})
                   </span>
                   <span className="text-amber-700">
-                    重复拦截 {preview.stats.duplicateCount} 笔
+                    重复 {preview.stats.duplicateCount}
                   </span>
                   <span className="text-slate-400">
-                    跳过无效/未达标 {preview.stats.skippedCount} 笔
+                    跳过 {preview.stats.skippedCount}
                   </span>
                 </div>
               </div>
 
               {/* Optional Column Mapping Editor */}
               {showMapping && (
-                <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg grid grid-cols-1 sm:grid-cols-3 gap-3">
                   {MAPPING_FIELDS.map((field) => (
                     <div key={field.key}>
                       <label className="block text-[11px] font-medium text-slate-600 mb-1">
@@ -417,9 +465,64 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
                 </div>
               )}
 
-              {/* Candidate Preview Table */}
-              <div className="border border-slate-200 rounded-lg overflow-x-auto max-h-[280px] ledger-scroll">
-                <table className="w-full text-left border-collapse min-w-[760px] text-xs">
+              {/* Mobile Compact Preview List (< sm) */}
+              <div className="sm:hidden border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-[260px] overflow-y-auto ledger-scroll">
+                {preview.candidates.slice(0, 100).map((row) => {
+                  const statusLabel =
+                    row.status === 'new'
+                      ? '新增'
+                      : row.status === 'duplicate_existing' ||
+                          row.status === 'duplicate_in_file'
+                        ? '重复'
+                        : '跳过';
+                  const statusColor =
+                    row.status === 'new'
+                      ? 'text-emerald-700 font-semibold'
+                      : row.status === 'duplicate_existing' ||
+                          row.status === 'duplicate_in_file'
+                        ? 'text-amber-700 font-medium'
+                        : 'text-slate-400';
+
+                  return (
+                    <div
+                      key={row.rowIndex}
+                      className={`p-3 text-xs space-y-1 ${
+                        row.status === 'new' ? 'bg-white' : 'bg-slate-50/70'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium text-slate-900 truncate">
+                          <span className={`mr-1.5 ${statusColor}`}>[{statusLabel}]</span>
+                          {row.record.activityItem}
+                        </span>
+                        <span className="font-mono-num font-semibold text-slate-900 shrink-0">
+                          {formatCurrency(row.record.rewardAmount)}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-500 flex flex-wrap gap-x-2">
+                        <span>{row.record.platformChannel}</span>
+                        <span>·</span>
+                        <span className="font-mono-num">{row.record.dateTime || '无时间'}</span>
+                        {row.skipReason && (
+                          <>
+                            <span>·</span>
+                            <span>{row.skipReason}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+                {preview.candidates.length > 100 && (
+                  <div className="p-2.5 text-center text-[11px] text-slate-500 bg-slate-50">
+                    仅预览前 100 条，确认导入时将处理全部 {preview.stats.newCount} 条有效新增记录
+                  </div>
+                )}
+              </div>
+
+              {/* Desktop Candidate Preview Table (>= sm) */}
+              <div className="hidden sm:block border border-slate-200 rounded-lg overflow-x-auto max-h-[260px] ledger-scroll">
+                <table className="w-full text-left border-collapse min-w-[740px] text-xs">
                   <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 text-slate-500">
                     <tr>
                       <th className="py-2.5 pl-4 pr-2">状态</th>
@@ -432,7 +535,7 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {preview.candidates.map((row) => {
+                    {preview.candidates.slice(0, 200).map((row) => {
                       const statusLabel =
                         row.status === 'new'
                           ? '提取新增'
@@ -485,19 +588,19 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
-          <div className="flex items-center gap-1.5 text-xs text-slate-500">
+        <div className="px-5 sm:px-6 py-3.5 sm:py-4 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:pb-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
+          <div className="hidden sm:flex items-center gap-1.5 text-xs text-slate-500">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" aria-hidden="true" />
             <span>
-              去重机制已启用：基于任务ID/时间/渠道/事项/金额指纹校验，多次导入绝不重复入账
+              去重机制已启用：基于任务ID与收益指纹校验，多次导入绝不重复入账
             </span>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
             <button
               type="button"
               onClick={handleClose}
-              className="px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg cursor-pointer"
+              className="px-4 py-2.5 min-h-[42px] text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg cursor-pointer"
             >
               取消
             </button>
@@ -505,7 +608,7 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
               type="button"
               disabled={!preview || preview.stats.newCount === 0}
               onClick={handleConfirm}
-              className="px-4 py-2 text-xs font-medium text-white bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-300 disabled:cursor-not-allowed rounded-lg transition-colors cursor-pointer"
+              className="flex-1 sm:flex-none px-4 py-2.5 min-h-[42px] text-xs font-medium text-white bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-300 disabled:cursor-not-allowed rounded-lg transition-colors cursor-pointer"
             >
               {preview
                 ? `确认导入 ${preview.stats.newCount} 笔新收益`

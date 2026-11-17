@@ -101,28 +101,28 @@ export const EarningsTable: React.FC<EarningsTableProps> = ({
     <section
       id="ledger"
       aria-label="收益明细台账"
-      className="bg-white border border-slate-200 rounded-xl overflow-hidden"
+      className="scroll-mt-16 bg-white border border-slate-200 rounded-xl overflow-hidden"
     >
       {/* Toolbar */}
-      <div className="p-5 sm:p-6 border-b border-slate-200 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="p-4 sm:p-6 border-b border-slate-200 space-y-3.5 sm:space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-semibold text-slate-900">
               零散收益明细台账
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              默认按时间倒序排列（最新时间优先），支持按周期导入与非周期零星自录筛选
+              默认按时间倒序排列（最新时间优先），支持周期导入与非周期零星筛选
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={onOpenImportModal}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-2 min-h-[38px] text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Upload className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
-              <span>导入周期任务数据</span>
+              <span>导入周期任务</span>
             </button>
 
             <div className="relative" ref={exportMenuRef}>
@@ -130,10 +130,10 @@ export const EarningsTable: React.FC<EarningsTableProps> = ({
                 type="button"
                 onClick={() => setExportMenuOpen((v) => !v)}
                 aria-expanded={exportMenuOpen}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-2 min-h-[38px] text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
-                <span>导出数据</span>
+                <span>导出</span>
                 <ChevronDown className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
               </button>
 
@@ -145,7 +145,7 @@ export const EarningsTable: React.FC<EarningsTableProps> = ({
                       exportToExcel(records);
                       setExportMenuOpen(false);
                     }}
-                    className="w-full px-3.5 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                    className="w-full px-3.5 py-2.5 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
                   >
                     <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" aria-hidden="true" />
                     <span>导出 Excel (.xlsx)</span>
@@ -156,7 +156,7 @@ export const EarningsTable: React.FC<EarningsTableProps> = ({
                       exportToCsv(records);
                       setExportMenuOpen(false);
                     }}
-                    className="w-full px-3.5 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                    className="w-full px-3.5 py-2.5 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
                     <span>导出 CSV (UTF-8)</span>
@@ -167,7 +167,7 @@ export const EarningsTable: React.FC<EarningsTableProps> = ({
                       exportToJson(records);
                       setExportMenuOpen(false);
                     }}
-                    className="w-full px-3.5 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                    className="w-full px-3.5 py-2.5 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
                     <span>导出 JSON 完整备份</span>
@@ -179,7 +179,7 @@ export const EarningsTable: React.FC<EarningsTableProps> = ({
                       downloadPeriodicTemplate();
                       setExportMenuOpen(false);
                     }}
-                    className="w-full px-3.5 py-2 text-left text-xs text-slate-600 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                    className="w-full px-3.5 py-2.5 text-left text-xs text-slate-600 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
                   >
                     <FileSpreadsheet className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
                     <span>下载周期任务导入模板</span>
@@ -191,7 +191,7 @@ export const EarningsTable: React.FC<EarningsTableProps> = ({
             <button
               type="button"
               onClick={onOpenAddModal}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-2 min-h-[38px] text-xs font-medium text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" aria-hidden="true" />
               <span>手工录入</span>
@@ -200,10 +200,10 @@ export const EarningsTable: React.FC<EarningsTableProps> = ({
         </div>
 
         {/* Filter & Sort Controls Row */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-[260px]">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2.5 flex-1">
             {/* Search */}
-            <div className="relative flex-1 min-w-[200px] max-w-xs">
+            <div className="relative w-full sm:flex-1 sm:min-w-[200px] sm:max-w-xs">
               <Search
                 className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
                 aria-hidden="true"
@@ -214,52 +214,54 @@ export const EarningsTable: React.FC<EarningsTableProps> = ({
                 onChange={(e) => onSearchChange(e.target.value)}
                 placeholder="搜索活动、消费、渠道或备注..."
                 aria-label="搜索收益记录"
-                className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-900 placeholder:text-slate-400 focus:outline-none focus:bg-white focus:border-emerald-600 transition-colors"
+                className="w-full pl-8 pr-3 py-2 min-h-[38px] text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-900 placeholder:text-slate-400 focus:outline-none focus:bg-white focus:border-emerald-600 transition-colors"
               />
             </div>
 
-            {/* Source Type Segmented Filter */}
-            <div
-              role="group"
-              aria-label="来源类型筛选"
-              className="inline-flex items-center p-1 bg-slate-100 rounded-lg"
-            >
-              {[
-                { value: 'all', label: '全部' },
-                { value: 'periodic_import', label: '周期任务导入' },
-                { value: 'manual_adhoc', label: '非周期零星' },
-              ].map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() =>
-                    onSourceFilterChange(opt.value as 'all' | EntrySourceType)
-                  }
-                  className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                    sourceFilter === opt.value
-                      ? 'bg-white text-slate-900 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Source Type Segmented Filter */}
+              <div
+                role="group"
+                aria-label="来源类型筛选"
+                className="inline-flex items-center p-1 bg-slate-100 rounded-lg"
+              >
+                {[
+                  { value: 'all', label: '全部' },
+                  { value: 'periodic_import', label: '周期导入' },
+                  { value: 'manual_adhoc', label: '零星自录' },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() =>
+                      onSourceFilterChange(opt.value as 'all' | EntrySourceType)
+                    }
+                    className={`px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                      sourceFilter === opt.value
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
 
-            {/* Channel Select */}
-            <select
-              value={channelFilter}
-              onChange={(e) => onChannelFilterChange(e.target.value)}
-              aria-label="按支付平台渠道筛选"
-              className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700 focus:outline-none focus:border-emerald-600 cursor-pointer"
-            >
-              <option value="all">全部支付渠道</option>
-              {allChannels.map((ch) => (
-                <option key={ch} value={ch}>
-                  {ch}
-                </option>
-              ))}
-            </select>
+              {/* Channel Select */}
+              <select
+                value={channelFilter}
+                onChange={(e) => onChannelFilterChange(e.target.value)}
+                aria-label="按支付平台渠道筛选"
+                className="px-2.5 py-1.5 min-h-[36px] text-xs bg-white border border-slate-200 rounded-lg text-slate-700 focus:outline-none focus:border-emerald-600 cursor-pointer"
+              >
+                <option value="all">全部渠道</option>
+                {allChannels.map((ch) => (
+                  <option key={ch} value={ch}>
+                    {ch}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {/* Sort Controls */}
@@ -267,7 +269,7 @@ export const EarningsTable: React.FC<EarningsTableProps> = ({
             <button
               type="button"
               onClick={toggleTimeSort}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-1.5 min-h-[36px] text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                 sortField === 'dateTime'
                   ? 'border-slate-300 bg-slate-100 text-slate-900'
                   : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
@@ -286,7 +288,7 @@ export const EarningsTable: React.FC<EarningsTableProps> = ({
             <button
               type="button"
               onClick={toggleAmountSort}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-1.5 min-h-[36px] text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                 sortField === 'rewardAmount'
                   ? 'border-slate-300 bg-slate-100 text-slate-900'
                   : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
@@ -305,25 +307,25 @@ export const EarningsTable: React.FC<EarningsTableProps> = ({
         </div>
       </div>
 
-      {/* Table Body */}
+      {/* Empty State */}
       {records.length === 0 ? (
-        <div className="py-16 px-6 text-center">
+        <div className="py-14 px-5 text-center">
           <p className="text-sm font-medium text-slate-800">暂无匹配的收益明细</p>
           <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-            您可以点击下方按钮导入历史周期任务表格自动提取收益，或手动录入一条非周期零星收益。
+            您可以导入周期任务导出的 JSON / Excel 文件自动提取收益，或手动录入非周期零星收益。
           </p>
-          <div className="mt-5 flex items-center justify-center gap-3">
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
             <button
               type="button"
               onClick={onOpenImportModal}
-              className="px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
+              className="px-4 py-2.5 min-h-[40px] text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
             >
               导入周期任务文件
             </button>
             <button
               type="button"
               onClick={onOpenAddModal}
-              className="px-4 py-2 text-xs font-medium text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg transition-colors cursor-pointer"
+              className="px-4 py-2.5 min-h-[40px] text-xs font-medium text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg transition-colors cursor-pointer"
             >
               新增零星收益
             </button>
@@ -331,8 +333,106 @@ export const EarningsTable: React.FC<EarningsTableProps> = ({
         </div>
       ) : (
         <>
-          <div className="overflow-x-auto ledger-scroll">
-            <table className="w-full text-left border-collapse min-w-[980px]">
+          {/* Mobile Card List (< md) - Zero horizontal table dragging */}
+          <div className="md:hidden divide-y divide-slate-100">
+            {displayedRecords.map((rec) => {
+              const isDeleting = confirmDeleteId === rec.id;
+              return (
+                <article key={rec.id} className="p-4 space-y-2 bg-white">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-semibold text-slate-900 leading-snug break-words">
+                        {rec.activityItem}
+                      </h3>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-slate-500">
+                        <span className="font-medium text-slate-700">
+                          {rec.platformChannel}
+                        </span>
+                        <span aria-hidden="true">·</span>
+                        <span>
+                          {rec.sourceType === 'periodic_import'
+                            ? '周期任务'
+                            : '零星自录'}
+                        </span>
+                        <span aria-hidden="true">·</span>
+                        <span className="font-mono-num">{rec.dateTime}</span>
+                      </div>
+                    </div>
+
+                    <div className="shrink-0 text-right font-mono-num text-base font-semibold text-emerald-700">
+                      +{formatCurrency(rec.rewardAmount)}
+                    </div>
+                  </div>
+
+                  {/* Secondary Fields */}
+                  <div className="text-xs text-slate-600 space-y-1">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                      <span>消费：{rec.expenseItem}</span>
+                      <span className="text-slate-400">·</span>
+                      <span>门槛：{rec.threshold}</span>
+                    </div>
+                    {rec.notes && (
+                      <div className="text-slate-500 leading-relaxed break-words">
+                        备注：{rec.notes}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Mobile Action Row */}
+                  <div className="pt-1 flex items-center justify-between gap-2">
+                    <div className="text-[11px] text-slate-400 font-mono-num truncate">
+                      {rec.externalTaskKey ? `ID: ${rec.externalTaskKey}` : ''}
+                    </div>
+
+                    {isDeleting ? (
+                      <div className="inline-flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onDeleteRecord(rec.id);
+                            setConfirmDeleteId(null);
+                          }}
+                          className="px-3 py-1.5 min-h-[36px] text-xs font-medium text-white bg-rose-600 hover:bg-rose-700 rounded-md cursor-pointer"
+                        >
+                          确认删除
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="px-3 py-1.5 min-h-[36px] text-xs text-slate-600 hover:text-slate-900 rounded-md border border-slate-200 cursor-pointer"
+                        >
+                          取消
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="inline-flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => onEditRecord(rec)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 min-h-[36px] text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md cursor-pointer"
+                        >
+                          <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
+                          <span>编辑</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(rec.id)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 min-h-[36px] text-xs text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-md cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                          <span>删除</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+
+          {/* Desktop Dense Ledger Table (>= md) */}
+          <div className="hidden md:block overflow-x-auto ledger-scroll">
+            <table className="w-full text-left border-collapse min-w-[960px]">
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200 text-xs font-medium text-slate-500">
                   <th className="py-3 pl-5 pr-3 whitespace-nowrap">日期时间</th>
@@ -441,7 +541,7 @@ export const EarningsTable: React.FC<EarningsTableProps> = ({
           </div>
 
           {/* Summary Footer */}
-          <div className="px-5 py-3.5 bg-slate-50/70 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
+          <div className="px-4 sm:px-5 py-3.5 bg-slate-50/70 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
             <div className="flex items-center gap-2 font-mono-num">
               <span>当前筛选共 {records.length} 笔</span>
               <span aria-hidden="true">·</span>
@@ -457,7 +557,7 @@ export const EarningsTable: React.FC<EarningsTableProps> = ({
               <button
                 type="button"
                 onClick={() => setVisibleLimit((v) => v + 50)}
-                className="text-xs font-medium text-emerald-700 hover:text-emerald-800 cursor-pointer"
+                className="text-xs font-medium text-emerald-700 hover:text-emerald-800 min-h-[36px] px-2 cursor-pointer"
               >
                 加载更多（剩余 {records.length - visibleLimit} 笔）
               </button>

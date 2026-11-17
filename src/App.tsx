@@ -188,7 +188,7 @@ export default function App() {
     dateRangePreset !== 'all';
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
+    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 pb-16 md:pb-0">
       <HeaderBar
         onOpenAddModal={() => {
           setEditingRecord(null);
@@ -197,15 +197,15 @@ export default function App() {
         onOpenImportModal={() => setIsImportModalOpen(true)}
       />
 
-      <main className="flex-1 max-w-[1360px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6">
+      <main className="flex-1 max-w-[1360px] w-full mx-auto px-3.5 sm:px-6 lg:px-8 py-4 sm:py-8 space-y-4 sm:space-y-6">
         {/* Workspace Context & Global Period Strip */}
-        <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 sm:gap-4">
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
+            <h1 className="text-lg sm:text-2xl font-bold tracking-tight text-slate-900">
               零散收益统计中心
             </h1>
-            <p className="text-xs sm:text-sm text-slate-500 mt-1">
-              统一汇集周期任务自动提取收益与非周期零星自录流水，本地持久化存储并支持去重导入导出
+            <p className="text-xs sm:text-sm text-slate-500 mt-0.5 sm:mt-1">
+              汇集周期任务提取收益与非周期零星自录流水，本地存储并支持去重导入导出
             </p>
           </div>
 
@@ -217,9 +217,9 @@ export default function App() {
               className="inline-flex items-center p-1 bg-white border border-slate-200 rounded-lg"
             >
               {[
-                { value: 'all', label: '全部时间' },
-                { value: '30d', label: '近 30 天' },
-                { value: '90d', label: '近 90 天' },
+                { value: 'all', label: '全部' },
+                { value: '30d', label: '近30天' },
+                { value: '90d', label: '近90天' },
                 { value: 'ytd', label: '今年' },
               ].map((opt) => (
                 <button
@@ -228,7 +228,7 @@ export default function App() {
                   onClick={() =>
                     setDateRangePreset(opt.value as DateRangePreset)
                   }
-                  className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  className={`px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                     dateRangePreset === opt.value
                       ? 'bg-slate-900 text-white'
                       : 'text-slate-600 hover:text-slate-900'
@@ -242,7 +242,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setIsImportModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="hidden sm:inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Upload className="w-3.5 h-3.5 text-emerald-700" aria-hidden="true" />
               <span>导入周期任务</span>

@@ -11,14 +11,88 @@ import { buildChannelBreakdown, buildChartSeries } from './analytics';
 import { computeDedupeKey } from './dedupe';
 
 const HEADER_SYNONYMS: Record<keyof ColumnMapping, string[]> = {
-  dateTime: ['日期时间', '时间', '日期', '完成时间', '收益日期', '到账时间', '发生时间', 'datetime', 'date', 'time', 'completedat'],
-  platformChannel: ['支付平台渠道', '支付平台', '平台渠道', '渠道', '平台', '银行', '支付方式', 'platformchannel', 'platform', 'channel'],
-  expenseItem: ['消费事项', '消费内容', '消费项目', '商户', '消费场景', 'expenseitem', 'expense', 'merchant'],
-  activityItem: ['活动事项', '活动名称', '周期任务', '任务名称', '任务内容', '活动', '项目名称', 'activityitem', 'activity', 'taskname', 'task'],
-  rewardAmount: ['收益金额', '返现金额', '奖励金额', '收益', '金额', '返现', '实得金额', 'rewardamount', 'reward', 'amount', 'profit'],
+  dateTime: [
+    '日期时间',
+    '时间',
+    '日期',
+    '完成时间',
+    '收益日期',
+    '到账时间',
+    '发生时间',
+    'datetime',
+    'completedat',
+    'date',
+    'time',
+  ],
+  platformChannel: [
+    '支付平台渠道',
+    '支付平台',
+    '平台渠道',
+    '渠道',
+    '平台',
+    '银行',
+    '支付方式',
+    'platformchannel',
+    'platform',
+    'channel',
+  ],
+  expenseItem: [
+    '消费事项',
+    '消费内容',
+    '消费项目',
+    '商户',
+    '消费场景',
+    '任务分类',
+    'expenseitem',
+    'expense',
+    'merchant',
+    'category',
+  ],
+  activityItem: [
+    '活动事项',
+    '活动名称',
+    '周期任务',
+    '任务名称',
+    '任务内容',
+    '活动',
+    '项目名称',
+    'activityitem',
+    'activity',
+    'taskname',
+    'task',
+    'name',
+  ],
+  rewardAmount: [
+    '收益金额',
+    '实际收益',
+    '返现金额',
+    '奖励金额',
+    '收益',
+    '金额',
+    '返现',
+    '实得金额',
+    'rewardamount',
+    'actual',
+    'reward',
+    'amount',
+    'profit',
+    'expected',
+  ],
   threshold: ['门槛', '消费门槛', '使用门槛', '达标条件', '条件', 'threshold', 'condition'],
-  notes: ['其他备注', '备注', '说明', '详情', 'notes', 'remark', 'memo'],
-  externalTaskKey: ['任务id', '周期任务id', '周期编号', '任务编号', '流水号', '订单号', '唯一标识', 'externaltaskkey', 'taskid', 'taskkey'],
+  notes: ['其他备注', '备注', '说明', '详情', 'feedback', 'notes', 'remark', 'memo'],
+  externalTaskKey: [
+    '任务id',
+    '周期任务id',
+    '周期编号',
+    '任务编号',
+    '流水号',
+    '订单号',
+    '唯一标识',
+    'externaltaskkey',
+    'taskid',
+    'taskkey',
+    'id',
+  ],
   taskStatus: ['任务状态', '状态', '是否达标', '完成状态', '达标状态', 'status', 'completed'],
 };
 
@@ -28,13 +102,16 @@ const INCOMPLETE_STATUS_TOKENS = [
   '已过期',
   '已失效',
   '已取消',
+  '已跳过',
   '待完成',
   '作废',
   '失败',
   'pending',
+  'skipped',
+  'canceled',
+  'cancelled',
   'incomplete',
   'expired',
-  'cancelled',
   'failed',
   'false',
   '否',
@@ -52,7 +129,6 @@ export function normalizeDateTimeValue(val: unknown): string {
   }
 
   if (typeof val === 'number' && Number.isFinite(val)) {
-    // Excel serial date number
     const parsed = XLSX.SSF.parse_date_code(val);
     if (parsed && parsed.y && parsed.m && parsed.d) {
       return `${parsed.y}-${pad2(parsed.m)}-${pad2(parsed.d)} ${pad2(parsed.H || 0)}:${pad2(parsed.M || 0)}`;
@@ -62,7 +138,14 @@ export function normalizeDateTimeValue(val: unknown): string {
   const raw = String(val).trim();
   if (!raw) return '';
 
-  // Handle Chinese formats like 2026年11月16日 14:30
+  // Handle ISO 8601 UTC/offset timestamps (e.g., 2026-11-14T10:15:23.000Z) in local timezone
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/i.test(raw)) {
+    const isoDate = new Date(raw);
+    if (!Number.isNaN(isoDate.getTime())) {
+      return `${isoDate.getFullYear()}-${pad2(isoDate.getMonth() + 1)}-${pad2(isoDate.getDate())} ${pad2(isoDate.getHours())}:${pad2(isoDate.getMinutes())}`;
+    }
+  }
+
   const cleaned = raw
     .replace(/年|\//g, '-')
     .replace(/月/g, '-')
@@ -102,12 +185,12 @@ export function parseRewardNumber(val: unknown): number {
 export function inferColumnMapping(headers: string[]): ColumnMapping {
   const findMatch = (field: keyof ColumnMapping): string => {
     const synonyms = HEADER_SYNONYMS[field];
-    // Exact match first (case-insensitive)
-    for (const h of headers) {
-      const normalized = h.trim().toLowerCase().replace(/\s+/g, '');
-      if (synonyms.includes(normalized)) return h;
+    for (const syn of synonyms) {
+      const matched = headers.find(
+        (h) => h.trim().toLowerCase().replace(/\s+/g, '') === syn
+      );
+      if (matched) return matched;
     }
-    // Partial substring match second
     for (const h of headers) {
       const normalized = h.trim().toLowerCase().replace(/\s+/g, '');
       if (synonyms.some((s) => normalized.includes(s) || s.includes(normalized))) {
@@ -127,6 +210,173 @@ export function inferColumnMapping(headers: string[]): ColumnMapping {
     notes: findMatch('notes'),
     externalTaskKey: findMatch('externalTaskKey'),
     taskStatus: findMatch('taskStatus'),
+  };
+}
+
+interface RecurringRuleLike {
+  id?: string;
+  name?: string;
+  platform?: string;
+  category?: string;
+  time?: string;
+  amount?: number;
+  currency?: string;
+  singleCapAmount?: number;
+  periodCapAmount?: number;
+  periodCapScope?: string;
+  monthlyLimit?: number;
+  weeklyLimit?: number;
+  solarTermLimit?: number;
+  notes?: string;
+}
+
+interface RecurringRecordLike {
+  id?: string;
+  ruleId?: string;
+  name?: string;
+  platform?: string;
+  category?: string;
+  date?: string;
+  time?: string;
+  completedAt?: string;
+  expected?: number;
+  actual?: number;
+  currency?: string;
+  status?: string;
+  feedback?: string;
+  notes?: string;
+}
+
+function buildRuleThresholdText(rule?: RecurringRuleLike): string {
+  if (!rule) return '周期任务达标';
+  const parts: string[] = [];
+  if (typeof rule.singleCapAmount === 'number' && rule.singleCapAmount > 0) {
+    parts.push(`单次封顶¥${rule.singleCapAmount}`);
+  }
+  if (typeof rule.periodCapAmount === 'number' && rule.periodCapAmount > 0) {
+    const scopeMap: Record<string, string> = {
+      week: '每周',
+      month: '每月',
+      solarTerm: '每节气',
+      total: '累计',
+    };
+    const scope = scopeMap[rule.periodCapScope || 'month'] || '周期';
+    parts.push(`${scope}封顶¥${rule.periodCapAmount}`);
+  }
+  if (typeof rule.weeklyLimit === 'number' && rule.weeklyLimit > 0) {
+    parts.push(`每周限${rule.weeklyLimit}次`);
+  }
+  if (typeof rule.monthlyLimit === 'number' && rule.monthlyLimit > 0) {
+    parts.push(`每月限${rule.monthlyLimit}次`);
+  }
+  if (typeof rule.solarTermLimit === 'number' && rule.solarTermLimit > 0) {
+    parts.push(`节气限${rule.solarTermLimit}次`);
+  }
+  return parts.length > 0 ? parts.join(' / ') : '周期任务达标';
+}
+
+function isRecurringCheckInBackup(
+  parsed: unknown
+): parsed is { version?: number; rules?: RecurringRuleLike[]; records: RecurringRecordLike[] } {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+  const obj = parsed as Record<string, unknown>;
+  if (!Array.isArray(obj.records)) return false;
+  // Detect RecurringCheck-inReminders backup structure (has rules array or task-style record fields)
+  if (Array.isArray(obj.rules)) return true;
+  const sample = obj.records[0] as Record<string, unknown> | undefined;
+  if (!sample) return false;
+  return (
+    'ruleId' in sample ||
+    ('status' in sample && ('actual' in sample || 'expected' in sample || 'date' in sample))
+  );
+}
+
+/**
+ * Converts RecurringCheck-inReminders v2 & v3 (optimized) backup JSON records
+ * into flat tabular rows so both auto-extraction and manual column remapping work seamlessly.
+ */
+function flattenRecurringBackupRows(
+  parsed: { version?: number; rules?: RecurringRuleLike[]; records: RecurringRecordLike[] },
+  useExpectedFallback: boolean
+): {
+  rawRows: Record<string, unknown>[];
+  ruleCount: number;
+  recordCount: number;
+} {
+  const rules = Array.isArray(parsed.rules) ? parsed.rules : [];
+  const ruleMap = new Map<string, RecurringRuleLike>();
+  for (const r of rules) {
+    if (r && typeof r.id === 'string') {
+      ruleMap.set(r.id, r);
+    }
+  }
+
+  const rawRows: Record<string, unknown>[] = parsed.records.map((rec) => {
+    const rule = rec.ruleId ? ruleMap.get(rec.ruleId) : undefined;
+    const name = rec.name || rule?.name || '周期任务收益';
+    const platform = rec.platform || rule?.platform || '其他渠道';
+    const category = rec.category || rule?.category || '周期任务';
+    const currency = rec.currency || rule?.currency || 'CNY';
+
+    const resolvedDateTime = rec.completedAt
+      ? normalizeDateTimeValue(rec.completedAt)
+      : rec.date
+        ? normalizeDateTimeValue(`${rec.date} ${rec.time || rule?.time || '00:00'}`)
+        : '';
+
+    let amount = 0;
+    if (typeof rec.actual === 'number' && Number.isFinite(rec.actual)) {
+      amount = rec.actual;
+    } else if (
+      useExpectedFallback &&
+      rec.status === 'done' &&
+      typeof rec.expected === 'number' &&
+      Number.isFinite(rec.expected)
+    ) {
+      amount = rec.expected;
+    }
+
+    const noteParts = Array.from(
+      new Set(
+        [rec.feedback, rec.notes, rule?.notes]
+          .map((s) => (s ? String(s).trim() : ''))
+          .filter(Boolean)
+      )
+    );
+
+    const statusText =
+      rec.status === 'done'
+        ? currency !== 'CNY'
+          ? `非现金(${currency})`
+          : '已完成'
+        : rec.status === 'pending'
+          ? '未完成'
+          : rec.status === 'skipped'
+            ? '已跳过'
+            : rec.status === 'canceled'
+              ? '已取消'
+              : rec.status || '已完成';
+
+    return {
+      任务ID: rec.id || `${rec.ruleId || 'rule'}_${rec.date || ''}`,
+      日期时间: resolvedDateTime,
+      支付平台渠道: platform,
+      消费事项: category,
+      活动事项: name,
+      收益金额: currency !== 'CNY' ? 0 : amount,
+      门槛: buildRuleThresholdText(rule),
+      任务状态: statusText,
+      其他备注: noteParts.join(' · '),
+      _rawCurrency: currency,
+      _rawStatus: rec.status || '',
+      _expectedAmount: typeof rec.expected === 'number' ? rec.expected : 0,
+    };
+  });
+
+  return {
+    rawRows,
+    ruleCount: rules.length,
+    recordCount: parsed.records.length,
   };
 }
 
@@ -156,7 +406,6 @@ export function evaluateImportCandidates(
     const notes = String(getCell(mapping.notes) ?? '').trim();
     const externalTaskKey = String(getCell(mapping.externalTaskKey) ?? '').trim() || undefined;
 
-    // Respect explicit sourceType or dedupeKey if re-importing an exported JSON/Excel backup
     const rawSource = String(raw['来源类型'] ?? raw['sourceType'] ?? '').trim();
     const resolvedSource: EntrySourceType =
       rawSource === '手工零星录入' || rawSource === 'manual_adhoc'
@@ -180,6 +429,18 @@ export function evaluateImportCandidates(
 
     const explicitKey = String(raw['唯一指纹'] ?? raw['dedupeKey'] ?? '').trim();
     const dedupeKey = explicitKey || computeDedupeKey(record);
+
+    const rawCurrency = String(raw['_rawCurrency'] ?? '').trim();
+    if (rawCurrency && rawCurrency !== 'CNY') {
+      return {
+        rowIndex: idx + 1,
+        raw,
+        record,
+        dedupeKey,
+        status: 'skipped_no_reward',
+        skipReason: `非现金收益 (${rawCurrency})`,
+      };
+    }
 
     if (
       rawStatus &&
@@ -213,7 +474,7 @@ export function evaluateImportCandidates(
         record,
         dedupeKey,
         status: 'skipped_no_reward',
-        skipReason: '收益金额为 0 或无效',
+        skipReason: '实际收益金额为 0 或未记录',
       };
     }
 
@@ -282,13 +543,60 @@ export async function parseImportFile(
   file: File,
   existingRecords: EarningRecord[],
   importMode: EntrySourceType,
-  preferredSheet?: string
+  preferredSheet?: string,
+  options?: { useExpectedFallback?: boolean }
 ): Promise<ParsedImportPreview> {
   const lowerName = file.name.toLowerCase();
 
   if (lowerName.endsWith('.json')) {
     const text = await file.text();
     const parsed = JSON.parse(text);
+
+    // 1. Dedicated adapter for RecurringCheck-inReminders backup JSON (v2 & v3)
+    if (isRecurringCheckInBackup(parsed)) {
+      const { rawRows, ruleCount, recordCount } = flattenRecurringBackupRows(
+        parsed,
+        Boolean(options?.useExpectedFallback)
+      );
+      const headers = [
+        '任务ID',
+        '日期时间',
+        '支付平台渠道',
+        '消费事项',
+        '活动事项',
+        '收益金额',
+        '门槛',
+        '任务状态',
+        '其他备注',
+      ];
+      const mapping = inferColumnMapping(headers);
+      const { candidates, stats } = evaluateImportCandidates(
+        rawRows,
+        mapping,
+        existingRecords,
+        'periodic_import',
+        file.name
+      );
+
+      return {
+        fileName: file.name,
+        sheetNames: ['周期任务备份记录'],
+        selectedSheet: '周期任务备份记录',
+        headers,
+        rawRows,
+        mapping,
+        candidates,
+        detectedFormat: 'recurring_backup',
+        recurringSummary: {
+          version: typeof parsed.version === 'number' ? parsed.version : 2,
+          ruleCount,
+          recordCount,
+        },
+        stats,
+      };
+    }
+
+    // 2. Standard flat array or { records: [...] } JSON backup
     const arr: Record<string, unknown>[] = Array.isArray(parsed)
       ? parsed
       : Array.isArray(parsed?.records)
@@ -312,6 +620,7 @@ export async function parseImportFile(
       rawRows: arr,
       mapping,
       candidates,
+      detectedFormat: 'tabular',
       stats,
     };
   }
@@ -347,6 +656,7 @@ export async function parseImportFile(
     rawRows,
     mapping,
     candidates,
+    detectedFormat: 'tabular',
     stats,
   };
 }

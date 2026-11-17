@@ -134,13 +134,16 @@ export const EntryFormModal: React.FC<EntryFormModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-[1px] p-4"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/40 backdrop-blur-[1px] p-0 sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="entry-modal-title"
     >
-      <div className="bg-white border border-slate-200 rounded-xl shadow-xl w-full max-w-xl max-h-[92vh] overflow-y-auto">
-        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+      <div className="bg-white border border-slate-200 rounded-t-2xl sm:rounded-xl shadow-xl w-full max-w-xl max-h-[92dvh] flex flex-col overflow-hidden">
+        {/* Mobile grab handle */}
+        <div className="sm:hidden w-10 h-1 bg-slate-300 rounded-full mx-auto mt-2.5 shrink-0" />
+
+        <div className="px-5 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200 flex items-center justify-between shrink-0">
           <div>
             <h3
               id="entry-modal-title"
@@ -149,20 +152,20 @@ export const EntryFormModal: React.FC<EntryFormModalProps> = ({
               {editingRecord ? '编辑收益记录' : '新增非周期零星收益'}
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              用于日常临时立减、红包返现、平台补贴等非周期任务收益的自维护录入
+              用于临时立减、红包返现等非周期任务收益的自维护录入
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="关闭弹窗"
-            className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+            className="p-2 min-h-[40px] min-w-[40px] flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-5 sm:p-6 space-y-4 overflow-y-auto ledger-scroll">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1.5">
@@ -173,7 +176,7 @@ export const EntryFormModal: React.FC<EntryFormModalProps> = ({
                 value={dateTimeInput}
                 onChange={(e) => setDateTimeInput(e.target.value)}
                 required
-                className="w-full px-3 py-2 text-sm font-mono-num bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-600"
+                className="w-full px-3 py-2.5 text-sm font-mono-num bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-600"
               />
             </div>
 
@@ -183,13 +186,14 @@ export const EntryFormModal: React.FC<EntryFormModalProps> = ({
               </label>
               <input
                 type="number"
+                inputMode="decimal"
                 step="0.01"
                 min="0.01"
                 value={rewardAmount}
                 onChange={(e) => setRewardAmount(e.target.value)}
                 placeholder="例如 12.50"
                 required
-                className="w-full px-3 py-2 text-sm font-mono-num bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-600"
+                className="w-full px-3 py-2.5 text-sm font-mono-num bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-600"
               />
             </div>
           </div>
@@ -204,7 +208,7 @@ export const EntryFormModal: React.FC<EntryFormModalProps> = ({
               onChange={(e) => setPlatformChannel(e.target.value)}
               placeholder="输入或选择支付渠道"
               required
-              className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-600"
+              className="w-full px-3 py-2.5 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-600"
             />
             <div className="mt-2 flex flex-wrap gap-1.5">
               {CHANNEL_PRESETS.map((preset) => (
@@ -212,7 +216,7 @@ export const EntryFormModal: React.FC<EntryFormModalProps> = ({
                   key={preset}
                   type="button"
                   onClick={() => setPlatformChannel(preset)}
-                  className={`px-2.5 py-1 text-xs rounded-md border transition-colors cursor-pointer ${
+                  className={`px-2.5 py-1.5 text-xs rounded-md border transition-colors cursor-pointer ${
                     platformChannel === preset
                       ? 'border-emerald-600 bg-emerald-50 text-emerald-800 font-medium'
                       : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'
@@ -235,7 +239,7 @@ export const EntryFormModal: React.FC<EntryFormModalProps> = ({
                 onChange={(e) => setActivityItem(e.target.value)}
                 placeholder="例如：周五随机立减金 / 签到红包"
                 required
-                className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-600"
+                className="w-full px-3 py-2.5 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-600"
               />
             </div>
 
@@ -248,7 +252,7 @@ export const EntryFormModal: React.FC<EntryFormModalProps> = ({
                 value={expenseItem}
                 onChange={(e) => setExpenseItem(e.target.value)}
                 placeholder="例如：瑞幸咖啡 / 无消费纯领奖"
-                className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-600"
+                className="w-full px-3 py-2.5 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-600"
               />
             </div>
           </div>
@@ -263,7 +267,7 @@ export const EntryFormModal: React.FC<EntryFormModalProps> = ({
                 value={threshold}
                 onChange={(e) => setThreshold(e.target.value)}
                 placeholder="例如：满20元可用 / 无门槛"
-                className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-600"
+                className="w-full px-3 py-2.5 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-600"
               />
             </div>
 
@@ -274,7 +278,7 @@ export const EntryFormModal: React.FC<EntryFormModalProps> = ({
               <select
                 value={sourceType}
                 onChange={(e) => setSourceType(e.target.value as EntrySourceType)}
-                className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-600"
+                className="w-full px-3 py-2.5 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-600"
               >
                 <option value="manual_adhoc">非周期零星自录</option>
                 <option value="periodic_import">周期任务补充</option>
@@ -307,17 +311,17 @@ export const EntryFormModal: React.FC<EntryFormModalProps> = ({
             </div>
           )}
 
-          <div className="pt-2 flex items-center justify-end gap-3 border-t border-slate-100">
+          <div className="pt-3 pb-[env(safe-area-inset-bottom)] flex items-center justify-end gap-3 border-t border-slate-100">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
+              className="px-4 py-2.5 min-h-[44px] text-sm font-medium text-slate-600 hover:text-slate-900 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
             >
               取消
             </button>
             <button
               type="submit"
-              className="px-5 py-2 text-sm font-medium text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg transition-colors cursor-pointer"
+              className="flex-1 sm:flex-none px-5 py-2.5 min-h-[44px] text-sm font-medium text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg transition-colors cursor-pointer"
             >
               {editingRecord ? '保存修改' : '确认录入'}
             </button>
