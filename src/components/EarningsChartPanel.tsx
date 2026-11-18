@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDownWideNarrow, ArrowUpNarrowWide } from 'lucide-react';
 import {
   ChannelBreakdownItem,
@@ -41,11 +41,32 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
   const [chartSort, setChartSort] = useState<SortDirection>('asc');
   const [showCumulativeOverlay, setShowCumulativeOverlay] = useState<boolean>(true);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const chartScrollRef = useRef<HTMLDivElement>(null);
 
   const series = useMemo(
     () => buildChartSeries(records, granularity, chartSort),
     [records, granularity, chartSort]
   );
+
+  // Keep the latest/current period immediately visible when switching Daily/Monthly/Yearly/Cumulative
+  useEffect(() => {
+    const el = chartScrollRef.current;
+    if (!el) return;
+    const alignToLatest = () => {
+      if (!chartScrollRef.current) return;
+      if (chartSort === 'asc') {
+        chartScrollRef.current.scrollLeft = Math.max(
+          0,
+          chartScrollRef.current.scrollWidth - chartScrollRef.current.clientWidth
+        );
+      } else {
+        chartScrollRef.current.scrollLeft = 0;
+      }
+    };
+    alignToLatest();
+    const rafId = requestAnimationFrame(alignToLatest);
+    return () => cancelAnimationFrame(rafId);
+  }, [granularity, chartSort, series.length]);
 
   const channels: ChannelBreakdownItem[] = useMemo(
     () => buildChannelBreakdown(records),
@@ -62,10 +83,10 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
     [records]
   );
 
-  // SVG Layout dimensions
-  const needsHorizontalScroll = series.length > 18;
-  const width = needsHorizontalScroll ? Math.max(880, series.length * 44) : 880;
-  const height = 285;
+  // SVG Layout dimensions: scale naturally on mobile for <= 12 points; scroll to latest end when denser
+  const needsHorizontalScroll = series.length > 12;
+  const width = needsHorizontalScroll ? Math.max(680, series.length * 42) : 680;
+  const height = 265;
   const padLeft = 56;
   const padRight = granularity !== 'cumulative' && showCumulativeOverlay ? 58 : 20;
   const padTop = 20;
@@ -275,12 +296,18 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
               )}
             </div>
 
-            <div className="w-full overflow-x-auto ledger-scroll">
+            <div
+              ref={chartScrollRef}
+              className="w-full overflow-x-auto ledger-scroll"
+            >
               <svg
                 viewBox={`0 0 ${width} ${height}`}
-                className={`h-auto select-none ${
-                  needsHorizontalScroll ? 'min-w-[680px] w-full' : 'w-full'
-                }`}
+                style={
+                  needsHorizontalScroll
+                    ? { minWidth: `${Math.max(560, series.length * 36)}px` }
+                    : undefined
+                }
+                className="w-full h-auto select-none"
                 role="img"
                 aria-label="收益统计可视化图表"
                 onMouseLeave={() => setActiveIndex(null)}
@@ -409,11 +436,16 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
 
                 {/* X-Axis Labels */}
                 {series.map((pt, idx) => {
+                  const isFirst = idx === 0;
+                  const isLast = idx === series.length - 1;
+                  const tooCloseToLast =
+                    !isLast &&
+                    series.length - 1 - idx < Math.max(1, Math.ceil(labelStep * 0.65));
                   const showLabel =
-                    idx === 0 ||
-                    idx === series.length - 1 ||
-                    idx % labelStep === 0;
+                    isLast || (!tooCloseToLast && (isFirst || idx % labelStep === 0));
                   if (!showLabel) return null;
+                  const isCurrentEnd =
+                    (chartSort === 'asc' && isLast) || (chartSort === 'desc' && isFirst);
                   return (
                     <text
                       key={`lbl-${pt.key}`}
@@ -421,7 +453,9 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
                       y={height - 12}
                       textAnchor="middle"
                       className={`text-[11px] ${
-                        activeIndex === idx ? 'fill-slate-900 font-semibold' : 'fill-slate-500'
+                        activeIndex === idx || isCurrentEnd
+                          ? 'fill-slate-900 font-semibold'
+                          : 'fill-slate-500'
                       }`}
                       style={{ fontFamily: 'var(--font-mono)' }}
                     >
