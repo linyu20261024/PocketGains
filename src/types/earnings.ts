@@ -53,11 +53,17 @@ export interface ParsedImportPreview {
   rawRows: Record<string, unknown>[];
   mapping: ColumnMapping;
   candidates: ImportCandidateRow[];
-  detectedFormat?: 'recurring_backup' | 'tabular';
+  detectedFormat?: 'recurring_backup' | 'card_benefit_backup' | 'tabular';
   recurringSummary?: {
     version: number;
     ruleCount: number;
     recordCount: number;
+  };
+  cardBenefitSummary?: {
+    version: number;
+    ruleCount: number;
+    feedbackCount: number;
+    claimedTierCount: number;
   };
   stats: {
     totalRows: number;

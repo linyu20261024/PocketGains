@@ -99,6 +99,7 @@ const HEADER_SYNONYMS: Record<keyof ColumnMapping, string[]> = {
 const INCOMPLETE_STATUS_TOKENS = [
   '未完成',
   '未达标',
+  '未获优惠',
   '已过期',
   '已失效',
   '已取消',
@@ -380,6 +381,328 @@ function flattenRecurringBackupRows(
   };
 }
 
+interface CardBenefitRuleLike {
+  id?: string;
+  name?: string;
+  bank?: string;
+  cardType?: string;
+  platform?: string;
+  scene?: string;
+  channel?: string;
+  type?: string;
+  rate?: number;
+  cap?: number;
+  min?: number;
+  fixed?: number;
+  notes?: string;
+}
+
+interface CardBenefitFeedbackLike {
+  id?: string;
+  ruleId?: string;
+  ruleName?: string;
+  bank?: string;
+  cardType?: string;
+  scene?: string;
+  platform?: string;
+  channel?: string;
+  amount?: number;
+  expected?: number;
+  actual?: number;
+  confirmed?: boolean;
+  result?: string;
+  when?: string;
+  feedbackAt?: string;
+  note?: string;
+  contributedActivities?: string[];
+}
+
+interface CardBenefitTierLike {
+  id?: string;
+  target?: number;
+  rewardName?: string;
+  estimatedReward?: number;
+  actualReward?: number;
+  rewardStatus?: string;
+  receivedDate?: string;
+  rewardType?: string;
+}
+
+interface CardBenefitActivityLike {
+  id?: string;
+  name?: string;
+  bank?: string;
+  cardType?: string;
+  platform?: string;
+  channel?: string;
+  channels?: string[];
+  scene?: string;
+  end?: string;
+  tiers?: CardBenefitTierLike[];
+  notes?: string;
+}
+
+interface CardBenefitStateLike {
+  version?: number;
+  rules?: CardBenefitRuleLike[];
+  activities?: CardBenefitActivityLike[];
+  feedback?: CardBenefitFeedbackLike[];
+  customPlatforms?: Array<{ value: string; label: string }>;
+  customScenes?: Array<{ value: string; label: string }>;
+  customChannels?: Array<{ value: string; label: string }>;
+}
+
+const CARD_BENEFIT_CHANNEL_MAP: Record<string, string> = {
+  alipay: '支付宝',
+  wechat: '微信支付',
+  unionpay: '云闪付',
+  douyin: '抖音支付',
+  jd: '京东支付',
+  meituan: '美团',
+  pinduoduo: '多多支付',
+  mobile_pay: '手机Pay',
+  bank_app: '银行App',
+  transit_code: '乘车码',
+  digital_cny: '数字人民币',
+};
+
+const CARD_BENEFIT_SCENE_MAP: Record<string, string> = {
+  subway: '地铁出行',
+  bus: '公交车',
+  shared_bike: '共享单车',
+  dining: '餐饮美食',
+  shopping: '商超便利',
+  online_shop: '网上电商',
+  entertainment: '休闲娱乐',
+  bills: '生活缴费',
+  transport: '交通出行',
+  other: '其他消费',
+  any: '通用消费',
+};
+
+const CARD_TYPE_MAP: Record<string, string> = {
+  credit: '信用卡',
+  debit: '储蓄卡',
+  digital_cny: '数字人民币',
+};
+
+function isCardBenefitBackup(parsed: unknown): parsed is {
+  backupFormat?: string;
+  backupVersion?: number;
+  appVersion?: number;
+  state?: CardBenefitStateLike;
+  customPlatforms?: Array<{ value: string; label: string }>;
+  customScenes?: Array<{ value: string; label: string }>;
+  customChannels?: Array<{ value: string; label: string }>;
+} & CardBenefitStateLike {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+  const obj = parsed as Record<string, unknown>;
+  if (obj.backupFormat === 'card-recommender-backup') return true;
+  if (obj.state && typeof obj.state === 'object' && Array.isArray((obj.state as Record<string, unknown>).feedback)) {
+    return true;
+  }
+  return Array.isArray(obj.feedback) && (Array.isArray(obj.rules) || Array.isArray(obj.activities));
+}
+
+function resolveCardBenefitLabel(
+  val: string | undefined,
+  builtinMap: Record<string, string>,
+  customList?: Array<{ value: string; label: string }>
+): string {
+  if (!val) return '';
+  const norm = val.trim().toLowerCase().replace(/-/g, '_');
+  if (builtinMap[norm]) return builtinMap[norm];
+  const custom = customList?.find((c) => c.value.trim().toLowerCase().replace(/-/g, '_') === norm);
+  return custom?.label || val.trim();
+}
+
+function buildCardBenefitThreshold(rule?: CardBenefitRuleLike): string {
+  if (!rule) return '无门槛';
+  const parts: string[] = [];
+  if (typeof rule.min === 'number' && rule.min > 0) {
+    parts.push(`满¥${rule.min}可用`);
+  } else {
+    parts.push('无门槛');
+  }
+  if (typeof rule.cap === 'number' && rule.cap > 0) {
+    parts.push(`封顶¥${rule.cap}`);
+  }
+  return parts.join(' / ');
+}
+
+function flattenCardBenefitBackupRows(
+  parsed: ReturnType<typeof isCardBenefitBackup> extends never ? never : Record<string, unknown>,
+  options: { useExpectedFallback: boolean; includeClaimedTiers: boolean }
+): {
+  rawRows: Record<string, unknown>[];
+  version: number;
+  ruleCount: number;
+  feedbackCount: number;
+  claimedTierCount: number;
+} {
+  const root = parsed as {
+    backupVersion?: number;
+    appVersion?: number;
+    state?: CardBenefitStateLike;
+    customPlatforms?: Array<{ value: string; label: string }>;
+    customScenes?: Array<{ value: string; label: string }>;
+    customChannels?: Array<{ value: string; label: string }>;
+  } & CardBenefitStateLike;
+
+  const st: CardBenefitStateLike = root.state || root;
+  const rules = Array.isArray(st.rules) ? st.rules : [];
+  const feedback = Array.isArray(st.feedback) ? st.feedback : [];
+  const activities = Array.isArray(st.activities) ? st.activities : [];
+
+  const customChannels = st.customChannels || root.customChannels || [];
+  const customScenes = st.customScenes || root.customScenes || [];
+
+  const ruleMap = new Map<string, CardBenefitRuleLike>();
+  for (const r of rules) {
+    if (r && typeof r.id === 'string') {
+      ruleMap.set(r.id, r);
+    }
+  }
+
+  const resolveChannelName = (channel?: string, bank?: string): string => {
+    const normChannel = (channel || '').trim().toLowerCase().replace(/-/g, '_');
+    const cleanBank =
+      bank && !['通用/合作银行', '合作银行', 'any', '不限'].includes(bank.trim())
+        ? bank.trim()
+        : '';
+
+    if (!normChannel || normChannel === 'any' || normChannel === 'bank_app') {
+      return cleanBank || resolveCardBenefitLabel(channel, CARD_BENEFIT_CHANNEL_MAP, customChannels) || '其他渠道';
+    }
+    return resolveCardBenefitLabel(channel, CARD_BENEFIT_CHANNEL_MAP, customChannels) || cleanBank || '其他渠道';
+  };
+
+  const rawRows: Record<string, unknown>[] = feedback.map((fb) => {
+    const rule = fb.ruleId ? ruleMap.get(fb.ruleId) : undefined;
+    const bankName = fb.bank || rule?.bank || '';
+    const cardType = fb.cardType || rule?.cardType || '';
+    const cardTypeLabel = CARD_TYPE_MAP[cardType] || '';
+    const channelLabel = resolveChannelName(fb.channel || rule?.channel, bankName);
+    const sceneLabel =
+      resolveCardBenefitLabel(fb.scene || rule?.scene, CARD_BENEFIT_SCENE_MAP, customScenes) ||
+      '消费优惠';
+
+    const spendAmt = typeof fb.amount === 'number' && Number.isFinite(fb.amount) ? fb.amount : 0;
+    const expenseText =
+      spendAmt > 0 ? `${sceneLabel}（消费 ¥${spendAmt.toFixed(2)}）` : sceneLabel;
+
+    let rewardAmt = 0;
+    if (fb.result !== 'failed') {
+      if (typeof fb.actual === 'number' && Number.isFinite(fb.actual) && fb.actual > 0) {
+        rewardAmt = fb.actual;
+      } else if (
+        options.useExpectedFallback &&
+        typeof fb.expected === 'number' &&
+        Number.isFinite(fb.expected) &&
+        fb.expected > 0
+      ) {
+        rewardAmt = fb.expected;
+      }
+    }
+
+    const resolvedDateTime =
+      normalizeDateTimeValue(fb.when) || normalizeDateTimeValue(fb.feedbackAt);
+
+    const noteParts: string[] = [];
+    if (bankName && bankName !== channelLabel && !['通用/合作银行', '合作银行'].includes(bankName)) {
+      noteParts.push(cardTypeLabel ? `${bankName}·${cardTypeLabel}` : bankName);
+    } else if (cardTypeLabel) {
+      noteParts.push(cardTypeLabel);
+    }
+    if (fb.contributedActivities && fb.contributedActivities.length > 0) {
+      noteParts.push(`计入活动：${fb.contributedActivities.join('、')}`);
+    }
+    if (fb.note && fb.note.trim()) {
+      noteParts.push(fb.note.trim());
+    }
+
+    const statusText =
+      fb.result === 'failed'
+        ? '未获优惠'
+        : fb.result === 'discrepancy'
+          ? '实得有差异'
+          : '已确认';
+
+    return {
+      任务ID: fb.id || `cbp_${fb.ruleId || 'rule'}_${fb.when || ''}`,
+      日期时间: resolvedDateTime,
+      支付平台渠道: channelLabel,
+      消费事项: expenseText,
+      活动事项: fb.ruleName || rule?.name || '用卡优惠流水',
+      收益金额: rewardAmt,
+      门槛: buildCardBenefitThreshold(rule),
+      任务状态: statusText,
+      其他备注: noteParts.join(' · '),
+    };
+  });
+
+  // Count claimed/confirmed milestone cashback tiers
+  const claimedTierRows: Record<string, unknown>[] = [];
+  for (const act of activities) {
+    const tiers = Array.isArray(act.tiers) ? act.tiers : [];
+    for (const tier of tiers) {
+      const isSettled = tier.rewardStatus === 'confirmed' || tier.rewardStatus === 'claimed';
+      const isCashLike =
+        !tier.rewardType || tier.rewardType === 'cashback' || tier.rewardType === 'voucher';
+      if (!isSettled || !isCashLike) continue;
+
+      const tierAmt =
+        typeof tier.actualReward === 'number' && tier.actualReward > 0
+          ? tier.actualReward
+          : options.useExpectedFallback &&
+              typeof tier.estimatedReward === 'number' &&
+              tier.estimatedReward > 0
+            ? tier.estimatedReward
+            : 0;
+
+      if (tierAmt <= 0) continue;
+
+      const channelName = resolveChannelName(
+        act.channels?.[0] || act.channel,
+        act.bank
+      );
+      const tierDate = normalizeDateTimeValue(tier.receivedDate || act.end);
+
+      claimedTierRows.push({
+        任务ID: `cbp_tier_${act.id || act.name || 'act'}_${tier.id || tier.target || ''}`,
+        日期时间: tierDate,
+        支付平台渠道: channelName,
+        消费事项:
+          typeof tier.target === 'number' && tier.target > 0
+            ? `达标活动（累计消费 ¥${tier.target}）`
+            : '达标活动返现',
+        活动事项: `${act.name || '达标返现'}${tier.rewardName ? ` · ${tier.rewardName}` : ''}`,
+        收益金额: tierAmt,
+        门槛:
+          typeof tier.target === 'number' && tier.target > 0
+            ? `累计满¥${tier.target}达标`
+            : '达标返现',
+        任务状态: '已到账',
+        其他备注: [act.bank, CARD_TYPE_MAP[act.cardType || ''], act.notes]
+          .filter(Boolean)
+          .join(' · '),
+      });
+    }
+  }
+
+  if (options.includeClaimedTiers) {
+    rawRows.push(...claimedTierRows);
+  }
+
+  return {
+    rawRows,
+    version: root.backupVersion || st.version || root.appVersion || 6,
+    ruleCount: rules.length,
+    feedbackCount: feedback.length,
+    claimedTierCount: claimedTierRows.length,
+  };
+}
+
 export function evaluateImportCandidates(
   rawRows: Record<string, unknown>[],
   mapping: ColumnMapping,
@@ -544,7 +867,7 @@ export async function parseImportFile(
   existingRecords: EarningRecord[],
   importMode: EntrySourceType,
   preferredSheet?: string,
-  options?: { useExpectedFallback?: boolean }
+  options?: { useExpectedFallback?: boolean; includeClaimedTiers?: boolean }
 ): Promise<ParsedImportPreview> {
   const lowerName = file.name.toLowerCase();
 
@@ -552,7 +875,53 @@ export async function parseImportFile(
     const text = await file.text();
     const parsed = JSON.parse(text);
 
-    // 1. Dedicated adapter for RecurringCheck-inReminders backup JSON (v2 & v3)
+    // 1. Dedicated adapter for CardBenefitPro backup JSON (card-recommender-backup)
+    if (isCardBenefitBackup(parsed)) {
+      const { rawRows, version, ruleCount, feedbackCount, claimedTierCount } =
+        flattenCardBenefitBackupRows(parsed as Record<string, unknown>, {
+          useExpectedFallback: Boolean(options?.useExpectedFallback),
+          includeClaimedTiers: Boolean(options?.includeClaimedTiers),
+        });
+      const headers = [
+        '任务ID',
+        '日期时间',
+        '支付平台渠道',
+        '消费事项',
+        '活动事项',
+        '收益金额',
+        '门槛',
+        '任务状态',
+        '其他备注',
+      ];
+      const mapping = inferColumnMapping(headers);
+      const { candidates, stats } = evaluateImportCandidates(
+        rawRows,
+        mapping,
+        existingRecords,
+        importMode,
+        file.name
+      );
+
+      return {
+        fileName: file.name,
+        sheetNames: ['用卡优惠流水记录'],
+        selectedSheet: '用卡优惠流水记录',
+        headers,
+        rawRows,
+        mapping,
+        candidates,
+        detectedFormat: 'card_benefit_backup',
+        cardBenefitSummary: {
+          version,
+          ruleCount,
+          feedbackCount,
+          claimedTierCount,
+        },
+        stats,
+      };
+    }
+
+    // 2. Dedicated adapter for RecurringCheck-inReminders backup JSON (v2 & v3)
     if (isRecurringCheckInBackup(parsed)) {
       const { rawRows, ruleCount, recordCount } = flattenRecurringBackupRows(
         parsed,
@@ -596,7 +965,7 @@ export async function parseImportFile(
       };
     }
 
-    // 2. Standard flat array or { records: [...] } JSON backup
+    // 3. Standard flat array or { records: [...] } JSON backup
     const arr: Record<string, unknown>[] = Array.isArray(parsed)
       ? parsed
       : Array.isArray(parsed?.records)

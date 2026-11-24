@@ -52,6 +52,7 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
   const [preview, setPreview] = useState<ParsedImportPreview | null>(null);
   const [showMapping, setShowMapping] = useState(false);
   const [useExpectedFallback, setUseExpectedFallback] = useState(false);
+  const [includeClaimedTiers, setIncludeClaimedTiers] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
   const [parseError, setParseError] = useState('');
 
@@ -62,6 +63,7 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
     setPreview(null);
     setShowMapping(false);
     setUseExpectedFallback(false);
+    setIncludeClaimedTiers(false);
     setParseError('');
   };
 
@@ -74,7 +76,8 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
     file: File,
     mode: EntrySourceType,
     sheetName?: string,
-    expectedFallback = useExpectedFallback
+    expectedFallback = useExpectedFallback,
+    claimedTiers = includeClaimedTiers
   ) => {
     setIsParsing(true);
     setParseError('');
@@ -84,7 +87,10 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
         existingRecords,
         mode,
         sheetName,
-        { useExpectedFallback: expectedFallback }
+        {
+          useExpectedFallback: expectedFallback,
+          includeClaimedTiers: claimedTiers,
+        }
       );
       setSelectedFile(file);
       setPreview(parsed);
@@ -133,7 +139,26 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
   const handleToggleExpectedFallback = (checked: boolean) => {
     setUseExpectedFallback(checked);
     if (selectedFile) {
-      void processFile(selectedFile, importMode, preview?.selectedSheet, checked);
+      void processFile(
+        selectedFile,
+        importMode,
+        preview?.selectedSheet,
+        checked,
+        includeClaimedTiers
+      );
+    }
+  };
+
+  const handleToggleClaimedTiers = (checked: boolean) => {
+    setIncludeClaimedTiers(checked);
+    if (selectedFile) {
+      void processFile(
+        selectedFile,
+        importMode,
+        preview?.selectedSheet,
+        useExpectedFallback,
+        checked
+      );
     }
   };
 
@@ -260,7 +285,7 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
               导入周期任务与外部收益数据
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              支持周期任务备份 JSON（v2/v3）及 Excel (.xlsx/.xls) / CSV，自动提取有效现金收益并拦截重复
+              支持周期任务备份、用卡优惠流水 JSON（CardBenefitPro）及 Excel (.xlsx/.xls) / CSV，自动去重导入
             </p>
           </div>
           <button
@@ -340,7 +365,7 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
                   : '点击选择周期任务备份 JSON 或 Excel 文件'}
             </span>
             <span className="text-xs text-slate-500 mt-1">
-              兼容「周期任务与收益提醒助手」导出的 .json 备份，及 .xlsx / .xls / .csv
+              兼容「周期任务助手」「CardBenefitPro 用卡优惠流水」导出的 .json，及 .xlsx / .xls / .csv
             </span>
             <input
               type="file"
@@ -382,6 +407,59 @@ export const ImportWizardModal: React.FC<ImportWizardModalProps> = ({
                   若已完成记录未填写实际收益（actual），则按预期金额（expected）补充提取
                 </span>
               </label>
+            </div>
+          )}
+
+          {/* Recognized CardBenefitPro Backup Banner */}
+          {preview?.detectedFormat === 'card_benefit_backup' && preview.cardBenefitSummary && (
+            <div className="p-3.5 bg-emerald-50/80 border border-emerald-200 rounded-lg space-y-2 text-xs text-emerald-950">
+              <div className="font-medium">
+                已自动识别「CardBenefitPro 用卡优惠账本」v{preview.cardBenefitSummary.version} 导出文件：共{' '}
+                <span className="font-mono-num font-semibold">
+                  {preview.cardBenefitSummary.ruleCount}
+                </span>{' '}
+                条规则 ·{' '}
+                <span className="font-mono-num font-semibold">
+                  {preview.cardBenefitSummary.feedbackCount}
+                </span>{' '}
+                条流水记录
+                {preview.cardBenefitSummary.claimedTierCount > 0 && (
+                  <>
+                    {' '}·{' '}
+                    <span className="font-mono-num font-semibold">
+                      {preview.cardBenefitSummary.claimedTierCount}
+                    </span>{' '}
+                    笔已到账达标返现
+                  </>
+                )}
+                ，已自动翻译支付渠道、消费场景与门槛条件。
+              </div>
+              <div className="flex flex-col gap-1.5">
+                {preview.cardBenefitSummary.claimedTierCount > 0 && (
+                  <label className="inline-flex items-center gap-2 text-slate-700 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={includeClaimedTiers}
+                      onChange={(e) => handleToggleClaimedTiers(e.target.checked)}
+                      className="rounded border-slate-300 text-emerald-700 focus:ring-emerald-600"
+                    />
+                    <span>
+                      同时提取已确认/已领取的达标活动阶段返现（{preview.cardBenefitSummary.claimedTierCount} 笔）
+                    </span>
+                  </label>
+                )}
+                <label className="inline-flex items-center gap-2 text-slate-700 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={useExpectedFallback}
+                    onChange={(e) => handleToggleExpectedFallback(e.target.checked)}
+                    className="rounded border-slate-300 text-emerald-700 focus:ring-emerald-600"
+                  />
+                  <span>
+                    若流水未填写实得优惠（actual），则按预期优惠（expected）补充提取
+                  </span>
+                </label>
+              </div>
             </div>
           )}
 
