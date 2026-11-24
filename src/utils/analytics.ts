@@ -32,26 +32,28 @@ export function sortRecords(
   });
 }
 
-function getBucketKey(dateTime: string, granularity: ChartGranularity): string {
+export type BucketGranularity = 'daily' | 'monthly' | 'yearly';
+
+function getBucketKey(dateTime: string, bucketGranularity: BucketGranularity): string {
   const datePart = dateTime.slice(0, 10); // YYYY-MM-DD
-  if (granularity === 'yearly') {
+  if (bucketGranularity === 'yearly') {
     return datePart.slice(0, 4); // YYYY
   }
-  if (granularity === 'monthly') {
+  if (bucketGranularity === 'monthly') {
     return datePart.slice(0, 7); // YYYY-MM
   }
-  return datePart; // daily & cumulative use daily buckets
+  return datePart; // YYYY-MM-DD
 }
 
-function formatBucketLabel(key: string, granularity: ChartGranularity): string {
-  if (granularity === 'yearly') {
+function formatBucketLabel(key: string, bucketGranularity: BucketGranularity): string {
+  if (bucketGranularity === 'yearly') {
     return `${key}年`;
   }
-  if (granularity === 'monthly') {
+  if (bucketGranularity === 'monthly') {
     const [year, month] = key.split('-');
     return `${year.slice(2)}/${month}`;
   }
-  // YYYY-MM-DD -> MM-DD (or YY/MM/DD when spanning multiple years)
+  // YYYY-MM-DD -> MM-DD
   return key.slice(5);
 }
 
@@ -63,15 +65,19 @@ function formatBucketLabel(key: string, granularity: ChartGranularity): string {
 export function buildChartSeries(
   records: EarningRecord[],
   granularity: ChartGranularity,
-  direction: SortDirection
+  direction: SortDirection,
+  cumulativeGranularity: BucketGranularity = 'daily'
 ): PeriodBucketPoint[] {
   if (records.length === 0) return [];
+
+  const effectiveBucket: BucketGranularity =
+    granularity === 'cumulative' ? cumulativeGranularity : granularity;
 
   const bucketMap = new Map<string, { amount: number; count: number }>();
 
   for (const rec of records) {
     if (!rec.dateTime || rec.dateTime.length < 4) continue;
-    const key = getBucketKey(rec.dateTime, granularity);
+    const key = getBucketKey(rec.dateTime, effectiveBucket);
     const existing = bucketMap.get(key) || { amount: 0, count: 0 };
     existing.amount = Math.round((existing.amount + rec.rewardAmount) * 100) / 100;
     existing.count += 1;
@@ -87,8 +93,8 @@ export function buildChartSeries(
   const chronologicalPoints: PeriodBucketPoint[] = ascKeys.map((key) => {
     const entry = bucketMap.get(key)!;
     runningCumulative = Math.round((runningCumulative + entry.amount) * 100) / 100;
-    let label = formatBucketLabel(key, granularity);
-    if ((granularity === 'daily' || granularity === 'cumulative') && spansMultipleYears) {
+    let label = formatBucketLabel(key, effectiveBucket);
+    if (effectiveBucket === 'daily' && spansMultipleYears) {
       label = `${key.slice(2, 4)}/${key.slice(5)}`;
     }
     return {

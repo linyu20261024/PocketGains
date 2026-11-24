@@ -8,6 +8,7 @@ import {
 } from '../types/earnings';
 import {
   ActivityBreakdownItem,
+  BucketGranularity,
   buildActivityBreakdown,
   buildChannelBreakdown,
   buildChartSeries,
@@ -29,6 +30,44 @@ const GRANULARITY_OPTIONS: { value: ChartGranularity; label: string }[] = [
   { value: 'cumulative', label: '累计收入' },
 ];
 
+const CUMULATIVE_BUCKET_OPTIONS: { value: BucketGranularity; label: string }[] = [
+  { value: 'daily', label: '按日累计' },
+  { value: 'monthly', label: '按月累计' },
+  { value: 'yearly', label: '按年累计' },
+];
+
+function computeNiceYAxis(rawMax: number): { yMax: number; ticks: number[] } {
+  const safeMax = Number.isFinite(rawMax) && rawMax > 0 ? rawMax : 10;
+  const rawStep = safeMax / 4;
+  const exp = Math.floor(Math.log10(rawStep));
+  const base = Math.pow(10, exp);
+  const frac = rawStep / base;
+
+  const niceFactors = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10];
+  const factor = niceFactors.find((f) => f >= frac - 1e-9) ?? 10;
+  const step = Math.round(factor * base * 10000) / 10000;
+  const yMax = Math.round(step * 4 * 10000) / 10000;
+  const ticks = [0, 1, 2, 3, 4].map((i) => Math.round(step * i * 10000) / 10000);
+  return { yMax, ticks };
+}
+
+function formatAxisTick(val: number): string {
+  if (val === 0) return '¥0';
+  if (val >= 100000) {
+    const wan = val / 10000;
+    return `¥${Number.isInteger(wan) ? wan.toFixed(0) : wan.toFixed(1)}万`;
+  }
+  if (Number.isInteger(val)) return `¥${val}`;
+  return `¥${Number(val.toFixed(1))}`;
+}
+
+function formatBarTopValue(val: number): string {
+  if (val <= 0) return '';
+  if (val >= 10000) return `¥${(val / 10000).toFixed(1)}万`;
+  if (Number.isInteger(val)) return `¥${val}`;
+  return `¥${Number(val.toFixed(1))}`;
+}
+
 export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
   records,
   selectedChannel,
@@ -37,16 +76,74 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
   onSelectActivity,
 }) => {
   const [granularity, setGranularity] = useState<ChartGranularity>('monthly');
+  const [cumulativeGranularity, setCumulativeGranularity] =
+    useState<BucketGranularity>('monthly');
   // Default chart time axis is ascending (left -> right chronologically increasing)
   const [chartSort, setChartSort] = useState<SortDirection>('asc');
-  const [showCumulativeOverlay, setShowCumulativeOverlay] = useState<boolean>(true);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [plotViewportWidth, setPlotViewportWidth] = useState<number>(620);
   const chartScrollRef = useRef<HTMLDivElement>(null);
 
   const series = useMemo(
-    () => buildChartSeries(records, granularity, chartSort),
-    [records, granularity, chartSort]
+    () => buildChartSeries(records, granularity, chartSort, cumulativeGranularity),
+    [records, granularity, chartSort, cumulativeGranularity]
   );
+
+  // Measure live plot viewport width so SVG coordinates render at crisp 1:1 CSS pixels
+  // and the pinned left Y-axis aligns pixel-perfectly with the horizontal gridlines.
+  useEffect(() => {
+    const el = chartScrollRef.current;
+    if (!el) return;
+
+    const updateWidth = () => {
+      const next = Math.floor(el.clientWidth);
+      if (next > 0) setPlotViewportWidth(next);
+    };
+
+    updateWidth();
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(updateWidth);
+      observer.observe(el);
+      return () => observer.disconnect();
+    }
+    window.addEventListener('resize', updateWidth);
+    return () => window.removeEventListener('resize', updateWidth);
+  }, [series.length]);
+
+  const height = 250;
+  const padTop = 26;
+  const padBottom = 36;
+  const plotPadLeft = 14;
+  const plotPadRight = 18;
+  const plotH = height - padTop - padBottom;
+
+  const minColStep = granularity === 'yearly' ? 68 : 48;
+  const plotWidth = Math.max(
+    plotViewportWidth,
+    plotPadLeft + plotPadRight + series.length * minColStep
+  );
+  const plotInnerW = plotWidth - plotPadLeft - plotPadRight;
+
+  // Compute single unambiguous Y-axis from actual plotted values for the active view
+  const rawMaxValue = useMemo(() => {
+    if (series.length === 0) return 10;
+    return Math.max(
+      0,
+      ...series.map((p) =>
+        granularity === 'cumulative' ? p.cumulativeAmount : p.periodAmount
+      )
+    );
+  }, [series, granularity]);
+
+  const { yMax, ticks: yTickValues } = useMemo(
+    () => computeNiceYAxis(rawMaxValue),
+    [rawMaxValue]
+  );
+
+  const yAxisWidth = useMemo(() => {
+    const longestLabel = formatAxisTick(yMax);
+    return Math.max(54, longestLabel.length * 8 + 16);
+  }, [yMax]);
 
   // Keep the latest/current period immediately visible when switching Daily/Monthly/Yearly/Cumulative
   useEffect(() => {
@@ -66,7 +163,7 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
     alignToLatest();
     const rafId = requestAnimationFrame(alignToLatest);
     return () => cancelAnimationFrame(rafId);
-  }, [granularity, chartSort, series.length]);
+  }, [granularity, cumulativeGranularity, chartSort, plotWidth, series.length]);
 
   const channels: ChannelBreakdownItem[] = useMemo(
     () => buildChannelBreakdown(records),
@@ -83,55 +180,21 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
     [records]
   );
 
-  // SVG Layout dimensions: scale naturally on mobile for <= 12 points; scroll to latest end when denser
-  const needsHorizontalScroll = series.length > 12;
-  const width = needsHorizontalScroll ? Math.max(680, series.length * 42) : 680;
-  const height = 265;
-  const padLeft = 56;
-  const padRight = granularity !== 'cumulative' && showCumulativeOverlay ? 58 : 20;
-  const padTop = 20;
-  const padBottom = 40;
-  const plotW = width - padLeft - padRight;
-  const plotH = height - padTop - padBottom;
-
-  const maxPeriod = Math.max(
-    10,
-    ...series.map((p) => (granularity === 'cumulative' ? p.cumulativeAmount : p.periodAmount))
-  );
-  const maxCumulative = Math.max(10, ...series.map((p) => p.cumulativeAmount));
-
-  const ceilAxis = (val: number) => {
-    if (val <= 10) return 10;
-    const mag = Math.pow(10, Math.floor(Math.log10(val)));
-    const norm = val / mag;
-    if (norm <= 1.2) return 1.2 * mag;
-    if (norm <= 1.5) return 1.5 * mag;
-    if (norm <= 2) return 2 * mag;
-    if (norm <= 3) return 3 * mag;
-    if (norm <= 5) return 5 * mag;
-    if (norm <= 8) return 8 * mag;
-    return 10 * mag;
-  };
-
-  const yMaxPrimary = ceilAxis(maxPeriod);
-  const yMaxCumulative = ceilAxis(maxCumulative);
-  const yTicks = [0, 0.25, 0.5, 0.75, 1];
-
   const getX = (idx: number) => {
-    if (series.length <= 1) return padLeft + plotW / 2;
-    const step = plotW / series.length;
-    return padLeft + step * idx + step / 2;
+    if (series.length <= 1) return plotPadLeft + plotInnerW / 2;
+    const step = plotInnerW / series.length;
+    return plotPadLeft + step * idx + step / 2;
   };
 
-  const getYPrimary = (val: number) =>
-    padTop + plotH - (Math.min(val, yMaxPrimary) / yMaxPrimary) * plotH;
+  const getY = (val: number) => {
+    const clamped = Math.max(0, Math.min(val, yMax));
+    return padTop + plotH - (clamped / yMax) * plotH;
+  };
 
-  const getYCumulative = (val: number) =>
-    padTop + plotH - (Math.min(val, yMaxCumulative) / yMaxCumulative) * plotH;
-
+  const colWidth = series.length > 0 ? plotInnerW / series.length : plotInnerW;
   const barWidth =
     series.length > 0
-      ? Math.max(10, Math.min(44, (plotW / series.length) * 0.52))
+      ? Math.max(12, Math.min(44, colWidth * 0.54))
       : 24;
 
   const cumulativeLinePath = useMemo(() => {
@@ -139,14 +202,11 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
     return series
       .map((pt, idx) => {
         const x = getX(idx);
-        const y =
-          granularity === 'cumulative'
-            ? getYPrimary(pt.cumulativeAmount)
-            : getYCumulative(pt.cumulativeAmount);
+        const y = getY(pt.cumulativeAmount);
         return `${idx === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
       })
       .join(' ');
-  }, [series, granularity, plotW, plotH, yMaxPrimary, yMaxCumulative]);
+  }, [series, plotInnerW, plotH, yMax]);
 
   const cumulativeAreaPath = useMemo(() => {
     if (series.length === 0) return '';
@@ -156,13 +216,28 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
     return `${cumulativeLinePath} L ${lastX.toFixed(1)} ${baseY} L ${firstX.toFixed(1)} ${baseY} Z`;
   }, [cumulativeLinePath, series.length, plotH]);
 
-  const labelStep = Math.max(1, Math.ceil(series.length / 10));
+  const labelStep = colWidth >= 44 ? 1 : Math.max(1, Math.ceil(44 / Math.max(1, colWidth)));
   const selectedPoint =
     activeIndex !== null && series[activeIndex]
       ? series[activeIndex]
       : chartSort === 'asc'
         ? series[series.length - 1] ?? null
         : series[0] ?? null;
+
+  const activeGranularityDesc =
+    granularity === 'daily'
+      ? '按自然日统计当期收益（纵轴为单日收益金额）'
+      : granularity === 'monthly'
+        ? '按自然月统计当期收益（纵轴为单月收益金额）'
+        : granularity === 'yearly'
+          ? '按自然年统计当期收益（纵轴为年度收益金额）'
+          : `按${
+              cumulativeGranularity === 'daily'
+                ? '日'
+                : cumulativeGranularity === 'monthly'
+                  ? '月'
+                  : '年'
+            }节点累加历史总收益（纵轴为累计总金额）`;
 
   return (
     <section
@@ -178,9 +253,7 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
               收益趋势分析
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              {granularity === 'cumulative'
-                ? '截至各时间节点的累计总收益走势'
-                : '柱状展示周期收益，折线同步反映累计走势'}
+              <span>{activeGranularityDesc}</span>
               <span aria-hidden="true"> · </span>
               <span>
                 {chartSort === 'asc'
@@ -216,6 +289,33 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
               ))}
             </div>
 
+            {/* Explicit Cumulative Bucket Granularity Selector */}
+            {granularity === 'cumulative' && (
+              <div
+                role="group"
+                aria-label="累计收入统计粒度"
+                className="inline-flex items-center p-1 bg-emerald-50 border border-emerald-200 rounded-lg"
+              >
+                {CUMULATIVE_BUCKET_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => {
+                      setCumulativeGranularity(opt.value);
+                      setActiveIndex(null);
+                    }}
+                    className={`px-2.5 py-1 min-h-[30px] text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                      cumulativeGranularity === opt.value
+                        ? 'bg-emerald-700 text-white'
+                        : 'text-emerald-800 hover:bg-emerald-100/70'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
             {/* Chart Asc / Desc Toggle */}
             <button
               type="button"
@@ -238,20 +338,6 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
                 </>
               )}
             </button>
-
-            {granularity !== 'cumulative' && (
-              <button
-                type="button"
-                onClick={() => setShowCumulativeOverlay((v) => !v)}
-                className={`px-3 py-1.5 min-h-[36px] text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                  showCumulativeOverlay
-                    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                累计线
-              </button>
-            )}
           </div>
         </div>
 
@@ -268,16 +354,29 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
             {/* Pinned Readout Strip (hover & mobile tap) */}
             <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
               <div className="flex items-center gap-3 text-slate-500">
-                {granularity !== 'cumulative' && (
+                {granularity !== 'cumulative' ? (
                   <span className="inline-flex items-center gap-1.5">
                     <span className="w-2.5 h-2.5 rounded-xs bg-emerald-600 inline-block" aria-hidden="true" />
-                    <span>周期收益</span>
+                    <span>
+                      {granularity === 'daily'
+                        ? '单日收益（元）'
+                        : granularity === 'monthly'
+                          ? '单月收益（元）'
+                          : '年度收益（元）'}
+                    </span>
                   </span>
-                )}
-                {(granularity === 'cumulative' || showCumulativeOverlay) && (
+                ) : (
                   <span className="inline-flex items-center gap-1.5">
-                    <span className="w-3 h-0.5 bg-slate-800 inline-block" aria-hidden="true" />
-                    <span>累计总收益</span>
+                    <span className="w-3 h-0.5 bg-emerald-700 inline-block" aria-hidden="true" />
+                    <span>
+                      累计总收益（
+                      {cumulativeGranularity === 'daily'
+                        ? '按日'
+                        : cumulativeGranularity === 'monthly'
+                          ? '按月'
+                          : '按年'}
+                      ，元）
+                    </span>
                   </span>
                 )}
               </div>
@@ -296,193 +395,259 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
               )}
             </div>
 
-            <div
-              ref={chartScrollRef}
-              className="w-full overflow-x-auto ledger-scroll"
-            >
-              <svg
-                viewBox={`0 0 ${width} ${height}`}
-                style={
-                  needsHorizontalScroll
-                    ? { minWidth: `${Math.max(560, series.length * 36)}px` }
-                    : undefined
-                }
-                className="w-full h-auto select-none"
-                role="img"
-                aria-label="收益统计可视化图表"
-                onMouseLeave={() => setActiveIndex(null)}
-              >
-                <defs>
-                  <linearGradient id="cumAreaGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#059669" stopOpacity="0.18" />
-                    <stop offset="100%" stopColor="#059669" stopOpacity="0.01" />
-                  </linearGradient>
-                </defs>
-
-                {/* Horizontal Gridlines & Y-Axis Labels */}
-                {yTicks.map((t) => {
-                  const y = padTop + plotH - t * plotH;
-                  const valPrimary = yMaxPrimary * t;
-                  const valCum = yMaxCumulative * t;
-                  return (
-                    <g key={t}>
-                      <line
-                        x1={padLeft}
-                        y1={y}
-                        x2={width - padRight}
-                        y2={y}
-                        stroke={t === 0 ? '#CBD5E1' : '#F1F5F9'}
-                        strokeWidth={1}
-                      />
-                      <text
-                        x={padLeft - 8}
-                        y={y + 4}
-                        textAnchor="end"
-                        className="fill-slate-400 text-[11px]"
-                        style={{ fontFamily: 'var(--font-mono)' }}
-                      >
-                        ¥{valPrimary >= 1000 ? `${(valPrimary / 1000).toFixed(1)}k` : valPrimary.toFixed(0)}
-                      </text>
-                      {granularity !== 'cumulative' && showCumulativeOverlay && (
+            {/* Pinned Left Y-Axis + Scrollable Plot Area */}
+            <div className="flex items-stretch">
+              {/* Fixed Left Y-Axis (stays visible regardless of horizontal scroll) */}
+              <div className="shrink-0" style={{ width: `${yAxisWidth}px` }}>
+                <svg
+                  width={yAxisWidth}
+                  height={height}
+                  className="block select-none"
+                  aria-hidden="true"
+                >
+                  {yTickValues.map((val) => {
+                    const y = getY(val);
+                    return (
+                      <g key={val}>
                         <text
-                          x={width - padRight + 8}
+                          x={yAxisWidth - 8}
                           y={y + 4}
-                          textAnchor="start"
-                          className="fill-slate-400 text-[11px]"
+                          textAnchor="end"
+                          className="fill-slate-500 text-[11px]"
                           style={{ fontFamily: 'var(--font-mono)' }}
                         >
-                          ¥{valCum >= 1000 ? `${(valCum / 1000).toFixed(1)}k` : valCum.toFixed(0)}
+                          {formatAxisTick(val)}
                         </text>
-                      )}
-                    </g>
-                  );
-                })}
-
-                {/* Active/Hover vertical guide line */}
-                {activeIndex !== null && series[activeIndex] && (
+                        <line
+                          x1={yAxisWidth - 4}
+                          y1={y}
+                          x2={yAxisWidth}
+                          y2={y}
+                          stroke={val === 0 ? '#CBD5E1' : '#E2E8F0'}
+                          strokeWidth={1}
+                        />
+                      </g>
+                    );
+                  })}
                   <line
-                    x1={getX(activeIndex)}
+                    x1={yAxisWidth - 0.5}
                     y1={padTop}
-                    x2={getX(activeIndex)}
+                    x2={yAxisWidth - 0.5}
                     y2={padTop + plotH}
-                    stroke="#CBD5E1"
-                    strokeDasharray="3 3"
+                    stroke="#E2E8F0"
                     strokeWidth={1}
                   />
-                )}
+                </svg>
+              </div>
 
-                {/* Cumulative Area */}
-                {granularity === 'cumulative' && series.length > 1 && (
-                  <path d={cumulativeAreaPath} fill="url(#cumAreaGrad)" />
-                )}
+              {/* Scrollable Plot Area */}
+              <div
+                ref={chartScrollRef}
+                className="flex-1 min-w-0 overflow-x-auto ledger-scroll"
+              >
+                <svg
+                  width={plotWidth}
+                  height={height}
+                  className="block select-none"
+                  role="img"
+                  aria-label="收益统计可视化图表"
+                  onMouseLeave={() => setActiveIndex(null)}
+                >
+                  <defs>
+                    <linearGradient id="cumAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#059669" stopOpacity="0.20" />
+                      <stop offset="100%" stopColor="#059669" stopOpacity="0.01" />
+                    </linearGradient>
+                  </defs>
 
-                {/* Period Bars */}
-                {granularity !== 'cumulative' &&
-                  series.map((pt, idx) => {
-                    const cx = getX(idx);
-                    const y = getYPrimary(pt.periodAmount);
-                    const barH = Math.max(3, padTop + plotH - y);
-                    const isFocused = activeIndex === idx;
+                  {/* Horizontal Gridlines aligned 1:1 with Left Y-Axis ticks */}
+                  {yTickValues.map((val) => {
+                    const y = getY(val);
                     return (
-                      <rect
-                        key={pt.key}
-                        x={cx - barWidth / 2}
-                        y={y}
-                        width={barWidth}
-                        height={barH}
-                        rx={3}
-                        className="transition-opacity duration-150"
-                        fill={isFocused ? '#047857' : '#10B981'}
-                        opacity={activeIndex !== null && !isFocused ? 0.55 : 0.92}
+                      <line
+                        key={val}
+                        x1={0}
+                        y1={y}
+                        x2={plotWidth}
+                        y2={y}
+                        stroke={val === 0 ? '#CBD5E1' : '#F1F5F9'}
+                        strokeWidth={1}
                       />
                     );
                   })}
 
-                {/* Cumulative Line Overlay or Main Line */}
-                {(granularity === 'cumulative' || showCumulativeOverlay) &&
-                  series.length > 0 && (
+                  {/* Active/Hover vertical guide line */}
+                  {activeIndex !== null && series[activeIndex] && (
+                    <line
+                      x1={getX(activeIndex)}
+                      y1={padTop}
+                      x2={getX(activeIndex)}
+                      y2={padTop + plotH}
+                      stroke="#CBD5E1"
+                      strokeDasharray="3 3"
+                      strokeWidth={1}
+                    />
+                  )}
+
+                  {/* Cumulative Area */}
+                  {granularity === 'cumulative' && series.length > 1 && (
+                    <path d={cumulativeAreaPath} fill="url(#cumAreaGrad)" />
+                  )}
+
+                  {/* Period Bars (Daily / Monthly / Yearly) */}
+                  {granularity !== 'cumulative' &&
+                    series.map((pt, idx) => {
+                      const cx = getX(idx);
+                      const y = getY(pt.periodAmount);
+                      const rawBarH = padTop + plotH - y;
+                      const barH = pt.periodAmount > 0 ? Math.max(2, rawBarH) : 0;
+                      const isFocused =
+                        activeIndex === idx ||
+                        (activeIndex === null &&
+                          ((chartSort === 'asc' && idx === series.length - 1) ||
+                            (chartSort === 'desc' && idx === 0)));
+                      const showBarValue = colWidth >= 44 || isFocused;
+                      return (
+                        <g key={pt.key}>
+                          {barH > 0 && (
+                            <rect
+                              x={cx - barWidth / 2}
+                              y={padTop + plotH - barH}
+                              width={barWidth}
+                              height={barH}
+                              rx={3}
+                              className="transition-opacity duration-150"
+                              fill={isFocused ? '#047857' : '#10B981'}
+                              opacity={
+                                activeIndex !== null && activeIndex !== idx
+                                  ? 0.5
+                                  : 0.92
+                              }
+                            />
+                          )}
+                          {showBarValue && pt.periodAmount > 0 && (
+                            <text
+                              x={cx}
+                              y={Math.max(12, padTop + plotH - barH - 6)}
+                              textAnchor="middle"
+                              className={`text-[10px] ${
+                                isFocused
+                                  ? 'fill-emerald-800 font-semibold'
+                                  : 'fill-slate-500'
+                              }`}
+                              style={{ fontFamily: 'var(--font-mono)' }}
+                            >
+                              {formatBarTopValue(pt.periodAmount)}
+                            </text>
+                          )}
+                        </g>
+                      );
+                    })}
+
+                  {/* Cumulative Line & Dots (Cumulative Mode) */}
+                  {granularity === 'cumulative' && series.length > 0 && (
                     <>
                       {series.length > 1 && (
                         <path
                           d={cumulativeLinePath}
                           fill="none"
-                          stroke={granularity === 'cumulative' ? '#047857' : '#1E293B'}
-                          strokeWidth={2}
+                          stroke="#047857"
+                          strokeWidth={2.2}
                           strokeLinecap="round"
                           strokeLinejoin="round"
                         />
                       )}
                       {series.map((pt, idx) => {
                         const cx = getX(idx);
-                        const cy =
-                          granularity === 'cumulative'
-                            ? getYPrimary(pt.cumulativeAmount)
-                            : getYCumulative(pt.cumulativeAmount);
-                        const isFocused = activeIndex === idx;
+                        const cy = getY(pt.cumulativeAmount);
+                        const isFocused =
+                          activeIndex === idx ||
+                          (activeIndex === null &&
+                            ((chartSort === 'asc' && idx === series.length - 1) ||
+                              (chartSort === 'desc' && idx === 0)));
+                        const showDotValue =
+                          (colWidth >= 56 && idx % labelStep === 0) || isFocused;
                         return (
-                          <circle
-                            key={`dot-${pt.key}`}
-                            cx={cx}
-                            cy={cy}
-                            r={isFocused ? 5 : series.length <= 18 ? 3.5 : 2.5}
-                            fill={granularity === 'cumulative' ? '#047857' : '#1E293B'}
-                            stroke="#FFFFFF"
-                            strokeWidth={1.5}
-                          />
+                          <g key={`dot-${pt.key}`}>
+                            <circle
+                              cx={cx}
+                              cy={cy}
+                              r={isFocused ? 5 : series.length <= 18 ? 3.5 : 3}
+                              fill="#047857"
+                              stroke="#FFFFFF"
+                              strokeWidth={1.5}
+                            />
+                            {showDotValue && (
+                              <text
+                                x={cx}
+                                y={Math.max(12, cy - 9)}
+                                textAnchor="middle"
+                                className={`text-[10px] ${
+                                  isFocused
+                                    ? 'fill-emerald-800 font-semibold'
+                                    : 'fill-slate-500'
+                                }`}
+                                style={{ fontFamily: 'var(--font-mono)' }}
+                              >
+                                {formatBarTopValue(pt.cumulativeAmount)}
+                              </text>
+                            )}
+                          </g>
                         );
                       })}
                     </>
                   )}
 
-                {/* X-Axis Labels */}
-                {series.map((pt, idx) => {
-                  const isFirst = idx === 0;
-                  const isLast = idx === series.length - 1;
-                  const tooCloseToLast =
-                    !isLast &&
-                    series.length - 1 - idx < Math.max(1, Math.ceil(labelStep * 0.65));
-                  const showLabel =
-                    isLast || (!tooCloseToLast && (isFirst || idx % labelStep === 0));
-                  if (!showLabel) return null;
-                  const isCurrentEnd =
-                    (chartSort === 'asc' && isLast) || (chartSort === 'desc' && isFirst);
-                  return (
-                    <text
-                      key={`lbl-${pt.key}`}
-                      x={getX(idx)}
-                      y={height - 12}
-                      textAnchor="middle"
-                      className={`text-[11px] ${
-                        activeIndex === idx || isCurrentEnd
-                          ? 'fill-slate-900 font-semibold'
-                          : 'fill-slate-500'
-                      }`}
-                      style={{ fontFamily: 'var(--font-mono)' }}
-                    >
-                      {pt.label}
-                    </text>
-                  );
-                })}
+                  {/* X-Axis Labels */}
+                  {series.map((pt, idx) => {
+                    const isFirst = idx === 0;
+                    const isLast = idx === series.length - 1;
+                    const tooCloseToLast =
+                      !isLast &&
+                      labelStep > 1 &&
+                      series.length - 1 - idx < Math.max(1, Math.ceil(labelStep * 0.65));
+                    const showLabel =
+                      isLast || (!tooCloseToLast && (isFirst || idx % labelStep === 0));
+                    if (!showLabel) return null;
+                    const isCurrentEnd =
+                      (chartSort === 'asc' && isLast) || (chartSort === 'desc' && isFirst);
+                    return (
+                      <text
+                        key={`lbl-${pt.key}`}
+                        x={getX(idx)}
+                        y={height - 10}
+                        textAnchor="middle"
+                        className={`text-[11px] ${
+                          activeIndex === idx || isCurrentEnd
+                            ? 'fill-slate-900 font-semibold'
+                            : 'fill-slate-500'
+                        }`}
+                        style={{ fontFamily: 'var(--font-mono)' }}
+                      >
+                        {pt.label}
+                      </text>
+                    );
+                  })}
 
-                {/* Interactive Hit Columns */}
-                {series.map((pt, idx) => {
-                  const colW = plotW / series.length;
-                  const x = padLeft + colW * idx;
-                  return (
-                    <rect
-                      key={`hit-${pt.key}`}
-                      x={x}
-                      y={padTop}
-                      width={colW}
-                      height={plotH + 24}
-                      fill="transparent"
-                      className="cursor-pointer"
-                      onMouseEnter={() => setActiveIndex(idx)}
-                      onClick={() => setActiveIndex(idx)}
-                    />
-                  );
-                })}
-              </svg>
+                  {/* Interactive Hit Columns */}
+                  {series.map((pt, idx) => {
+                    const x = plotPadLeft + colWidth * idx;
+                    return (
+                      <rect
+                        key={`hit-${pt.key}`}
+                        x={x}
+                        y={padTop}
+                        width={colWidth}
+                        height={plotH + 24}
+                        fill="transparent"
+                        className="cursor-pointer"
+                        onMouseEnter={() => setActiveIndex(idx)}
+                        onClick={() => setActiveIndex(idx)}
+                      />
+                    );
+                  })}
+                </svg>
+              </div>
             </div>
           </div>
         )}
