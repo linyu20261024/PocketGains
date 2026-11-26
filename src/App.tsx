@@ -33,6 +33,7 @@ export default function App() {
   const [sourceFilter, setSourceFilter] = useState<'all' | EntrySourceType>('all');
   const [channelFilter, setChannelFilter] = useState('all');
   const [activityFilter, setActivityFilter] = useState('all');
+  const [expenseFilter, setExpenseFilter] = useState('all');
   const [dateRangePreset, setDateRangePreset] = useState<DateRangePreset>('all');
   const [sortField, setSortField] = useState<SortField>('dateTime');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
@@ -89,6 +90,7 @@ export default function App() {
       if (sourceFilter !== 'all' && rec.sourceType !== sourceFilter) return false;
       if (channelFilter !== 'all' && rec.platformChannel !== channelFilter) return false;
       if (activityFilter !== 'all' && (rec.activityItem?.trim() || '零星收益') !== activityFilter) return false;
+      if (expenseFilter !== 'all' && (rec.expenseItem?.trim() || '无消费事项') !== expenseFilter) return false;
 
       const dateOnly = rec.dateTime.slice(0, 10);
       if (dateRangePreset === 'ytd' && !dateOnly.startsWith(yearPrefix)) {
@@ -123,6 +125,7 @@ export default function App() {
     sourceFilter,
     channelFilter,
     activityFilter,
+    expenseFilter,
     dateRangePreset,
     sortField,
     sortDirection,
@@ -182,6 +185,7 @@ export default function App() {
     setSourceFilter('all');
     setChannelFilter('all');
     setActivityFilter('all');
+    setExpenseFilter('all');
     setDateRangePreset('all');
   };
 
@@ -190,6 +194,7 @@ export default function App() {
     sourceFilter !== 'all' ||
     channelFilter !== 'all' ||
     activityFilter !== 'all' ||
+    expenseFilter !== 'all' ||
     dateRangePreset !== 'all';
 
   return (
@@ -302,13 +307,15 @@ export default function App() {
           latestDateTime={latestDateTime}
         />
 
-        {/* Interactive Charts & Channel / Activity Distributions */}
+        {/* Interactive Charts & Channel / Activity / Expense Distributions */}
         <EarningsChartPanel
           records={filteredAndSortedRecords}
           selectedChannel={channelFilter}
           onSelectChannel={setChannelFilter}
           selectedActivity={activityFilter}
           onSelectActivity={setActivityFilter}
+          selectedExpense={expenseFilter}
+          onSelectExpense={setExpenseFilter}
         />
 
         {/* Detailed Earnings Ledger Table */}

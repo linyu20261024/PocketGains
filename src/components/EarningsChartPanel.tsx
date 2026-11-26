@@ -1,5 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownWideNarrow, ArrowUpNarrowWide } from 'lucide-react';
+import {
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  FileSpreadsheet,
+  Image as ImageIcon,
+} from 'lucide-react';
 import {
   ChannelBreakdownItem,
   ChartGranularity,
@@ -9,11 +18,21 @@ import {
 import {
   ActivityBreakdownItem,
   BucketGranularity,
+  ExpenseBreakdownItem,
   buildActivityBreakdown,
   buildChannelBreakdown,
   buildChartSeries,
+  buildExpenseBreakdown,
+  filterRecordsByPeriod,
   formatCurrency,
+  formatPeriodLabel,
+  getAvailablePeriodKeys,
 } from '../utils/analytics';
+import {
+  exportAnalyticsToExcel,
+  exportChartSeriesToCsv,
+  exportChartToPng,
+} from '../utils/excel';
 
 interface EarningsChartPanelProps {
   records: EarningRecord[];
@@ -21,6 +40,8 @@ interface EarningsChartPanelProps {
   onSelectChannel: (channel: string) => void;
   selectedActivity: string;
   onSelectActivity: (activity: string) => void;
+  selectedExpense: string;
+  onSelectExpense: (expense: string) => void;
 }
 
 const GRANULARITY_OPTIONS: { value: ChartGranularity; label: string }[] = [
@@ -68,14 +89,24 @@ function formatBarTopValue(val: number): string {
   return `¥${Number(val.toFixed(1))}`;
 }
 
+const DIST_PERIOD_OPTIONS: { value: ChartGranularity; label: string }[] = [
+  { value: 'daily', label: '每日' },
+  { value: 'monthly', label: '每月' },
+  { value: 'yearly', label: '每年' },
+  { value: 'cumulative', label: '累计' },
+];
+
 export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
   records,
   selectedChannel,
   onSelectChannel,
   selectedActivity,
   onSelectActivity,
+  selectedExpense,
+  onSelectExpense,
 }) => {
-  const [granularity, setGranularity] = useState<ChartGranularity>('monthly');
+  // Trend chart defaults to Daily ('daily')
+  const [granularity, setGranularity] = useState<ChartGranularity>('daily');
   const [cumulativeGranularity, setCumulativeGranularity] =
     useState<BucketGranularity>('monthly');
   // Default chart time axis is ascending (left -> right chronologically increasing)
@@ -83,6 +114,28 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [plotViewportWidth, setPlotViewportWidth] = useState<number>(620);
   const chartScrollRef = useRef<HTMLDivElement>(null);
+
+  // Distribution cards period mode (default: Monthly 'monthly')
+  const [distPeriodMode, setDistPeriodMode] = useState<ChartGranularity>('monthly');
+  const [distPeriodKey, setDistPeriodKey] = useState<string>('');
+
+  // Chart export dropdown state
+  const [chartExportOpen, setChartExportOpen] = useState(false);
+  const chartExportRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!chartExportOpen) return;
+    const handlePointerDown = (e: PointerEvent) => {
+      if (
+        chartExportRef.current &&
+        !chartExportRef.current.contains(e.target as Node)
+      ) {
+        setChartExportOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [chartExportOpen]);
 
   const series = useMemo(
     () => buildChartSeries(records, granularity, chartSort, cumulativeGranularity),
@@ -165,17 +218,62 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
     return () => cancelAnimationFrame(rafId);
   }, [granularity, cumulativeGranularity, chartSort, plotWidth, series.length]);
 
+  const availablePeriodKeys = useMemo(
+    () => getAvailablePeriodKeys(records, distPeriodMode),
+    [records, distPeriodMode]
+  );
+
+  const activePeriodKey = useMemo(() => {
+    if (distPeriodMode === 'cumulative') return '';
+    if (distPeriodKey && availablePeriodKeys.includes(distPeriodKey)) {
+      return distPeriodKey;
+    }
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const currentCandidate =
+      distPeriodMode === 'daily'
+        ? today
+        : distPeriodMode === 'monthly'
+          ? today.slice(0, 7)
+          : today.slice(0, 4);
+    if (availablePeriodKeys.includes(currentCandidate)) {
+      return currentCandidate;
+    }
+    return availablePeriodKeys[0] || '';
+  }, [distPeriodMode, distPeriodKey, availablePeriodKeys]);
+
+  const distributionRecords = useMemo(
+    () => filterRecordsByPeriod(records, distPeriodMode, activePeriodKey),
+    [records, distPeriodMode, activePeriodKey]
+  );
+
+  const distributionPeriodLabel = useMemo(
+    () => formatPeriodLabel(distPeriodMode, activePeriodKey),
+    [distPeriodMode, activePeriodKey]
+  );
+
   const channels: ChannelBreakdownItem[] = useMemo(
-    () => buildChannelBreakdown(records),
-    [records]
+    () => buildChannelBreakdown(distributionRecords),
+    [distributionRecords]
   );
 
   const activities: ActivityBreakdownItem[] = useMemo(
-    () => buildActivityBreakdown(records),
-    [records]
+    () => buildActivityBreakdown(distributionRecords),
+    [distributionRecords]
   );
 
-  const totalAmount = useMemo(
+  const expenses: ExpenseBreakdownItem[] = useMemo(
+    () => buildExpenseBreakdown(distributionRecords),
+    [distributionRecords]
+  );
+
+  const distTotalAmount = useMemo(
+    () => distributionRecords.reduce((sum, r) => sum + r.rewardAmount, 0),
+    [distributionRecords]
+  );
+
+  const trendTotalAmount = useMemo(
     () => records.reduce((sum, r) => sum + r.rewardAmount, 0),
     [records]
   );
@@ -338,6 +436,128 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
                 </>
               )}
             </button>
+
+            {/* Chart & Analytics Export Menu */}
+            <div className="relative" ref={chartExportRef}>
+              <button
+                type="button"
+                onClick={() => setChartExportOpen((v) => !v)}
+                aria-expanded={chartExportOpen}
+                disabled={records.length === 0}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 min-h-[36px] text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5 text-emerald-700" aria-hidden="true" />
+                <span>导出图表</span>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
+              </button>
+
+              {chartExportOpen && (
+                <div className="absolute right-0 mt-1.5 w-60 bg-white border border-slate-200 rounded-lg shadow-lg py-1.5 z-30">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      exportAnalyticsToExcel({
+                        records,
+                        distributionRecords,
+                        distributionPeriodLabel,
+                        granularity,
+                        cumulativeGranularity,
+                        chartSort,
+                        activeSeries: series,
+                      });
+                      setChartExportOpen(false);
+                    }}
+                    className="w-full px-3.5 py-2.5 text-left text-xs text-slate-800 hover:bg-slate-50 flex items-start gap-2.5 cursor-pointer"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" aria-hidden="true" />
+                    <div>
+                      <div className="font-medium">导出统计 Excel (.xlsx)</div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">
+                        含日/月/年趋势、三大分布及明细
+                      </div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const titleMap: Record<ChartGranularity, string> = {
+                        daily: '收益趋势分析（每日）',
+                        monthly: '收益趋势分析（每月）',
+                        yearly: '收益趋势分析（每年）',
+                        cumulative: `收益趋势分析（累计·${
+                          cumulativeGranularity === 'daily'
+                            ? '按日'
+                            : cumulativeGranularity === 'monthly'
+                              ? '按月'
+                              : '按年'
+                        }）`,
+                      };
+                      exportChartToPng({
+                        series,
+                        granularity,
+                        granularityTitle: titleMap[granularity],
+                        distributionPeriodLabel,
+                        yMax,
+                        yTickValues,
+                        totalAmount: trendTotalAmount,
+                        recordCount: records.length,
+                        topChannels: channels.slice(0, 3).map((c) => ({
+                          name: c.channel,
+                          amount: c.amount,
+                          share: c.share,
+                        })),
+                        topActivities: activities.slice(0, 3).map((a) => ({
+                          name: a.activity,
+                          amount: a.amount,
+                          share: a.share,
+                        })),
+                        topExpenses: expenses.slice(0, 3).map((e) => ({
+                          name: e.expense,
+                          amount: e.amount,
+                          share: e.share,
+                        })),
+                      });
+                      setChartExportOpen(false);
+                    }}
+                    className="w-full px-3.5 py-2.5 text-left text-xs text-slate-800 hover:bg-slate-50 flex items-start gap-2.5 cursor-pointer"
+                  >
+                    <ImageIcon className="w-4 h-4 text-slate-600 shrink-0 mt-0.5" aria-hidden="true" />
+                    <div>
+                      <div className="font-medium">导出趋势图图片 (.png)</div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">
+                        高清图含顶部趋势与三大分布摘要
+                      </div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const label =
+                        granularity === 'daily'
+                          ? '每日'
+                          : granularity === 'monthly'
+                            ? '每月'
+                            : granularity === 'yearly'
+                              ? '每年'
+                              : `累计(${cumulativeGranularity})`;
+                      exportChartSeriesToCsv(series, label);
+                      setChartExportOpen(false);
+                    }}
+                    className="w-full px-3.5 py-2.5 text-left text-xs text-slate-800 hover:bg-slate-50 flex items-start gap-2.5 cursor-pointer"
+                  >
+                    <Download className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" aria-hidden="true" />
+                    <div>
+                      <div className="font-medium">导出当前趋势数据 (.csv)</div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">
+                        轻量通用表格，UTF-8 编码不乱码
+                      </div>
+                    </div>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -653,17 +873,107 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
         )}
       </div>
 
-      {/* Bottom Two-Column Row: Channel Distribution + Activity Item Distribution */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 items-stretch">
+      {/* Distribution Period Selector Bar */}
+      <div className="bg-white border border-slate-200 rounded-xl px-4 sm:px-6 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm sm:text-base font-semibold text-slate-900">
+            多维分布统计
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            当前统计周期：<span className="font-medium text-slate-700">{distributionPeriodLabel}</span>
+            <span aria-hidden="true"> · </span>
+            <span>共 {distributionRecords.length} 笔，合计 {formatCurrency(distTotalAmount)}</span>
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div
+            role="group"
+            aria-label="分布统计周期类型"
+            className="inline-flex items-center p-1 bg-slate-100 rounded-lg"
+          >
+            {DIST_PERIOD_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => {
+                  setDistPeriodMode(opt.value);
+                  setDistPeriodKey('');
+                }}
+                className={`px-2.5 sm:px-3 py-1.5 min-h-[32px] text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  distPeriodMode === opt.value
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          {distPeriodMode !== 'cumulative' && availablePeriodKeys.length > 0 && (
+            <div className="inline-flex items-center bg-white border border-slate-200 rounded-lg overflow-hidden">
+              <button
+                type="button"
+                aria-label="上一周期"
+                disabled={
+                  availablePeriodKeys.indexOf(activePeriodKey) >=
+                  availablePeriodKeys.length - 1
+                }
+                onClick={() => {
+                  const idx = availablePeriodKeys.indexOf(activePeriodKey);
+                  if (idx >= 0 && idx < availablePeriodKeys.length - 1) {
+                    setDistPeriodKey(availablePeriodKeys[idx + 1]);
+                  }
+                }}
+                className="p-2 min-h-[34px] text-slate-600 hover:bg-slate-50 disabled:opacity-35 cursor-pointer"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
+
+              <select
+                value={activePeriodKey}
+                onChange={(e) => setDistPeriodKey(e.target.value)}
+                aria-label="选择具体统计周期"
+                className="px-1.5 py-1.5 min-h-[34px] text-xs font-mono-num font-medium text-slate-800 bg-white focus:outline-none cursor-pointer"
+              >
+                {availablePeriodKeys.map((k) => (
+                  <option key={k} value={k}>
+                    {formatPeriodLabel(distPeriodMode, k)}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                aria-label="下一周期"
+                disabled={availablePeriodKeys.indexOf(activePeriodKey) <= 0}
+                onClick={() => {
+                  const idx = availablePeriodKeys.indexOf(activePeriodKey);
+                  if (idx > 0) {
+                    setDistPeriodKey(availablePeriodKeys[idx - 1]);
+                  }
+                }}
+                className="p-2 min-h-[34px] text-slate-600 hover:bg-slate-50 disabled:opacity-35 cursor-pointer"
+              >
+                <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Bottom Three-Column Row: Channel + Activity + Expense Distributions */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6 items-stretch">
         {/* Card 1: Payment Platform / Channel Distribution */}
-        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 flex flex-col">
-          <div className="flex items-center justify-between gap-2 pb-3 sm:pb-4 border-b border-slate-100">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 flex flex-col">
+          <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-100">
             <div>
-              <h2 className="text-base font-semibold text-slate-900">
+              <h3 className="text-base font-semibold text-slate-900">
                 支付平台渠道分布
-              </h2>
+              </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                点击任意渠道可快速筛选图表与收益明细
+                点击任意渠道可快速筛选图表与明细
               </p>
             </div>
             {selectedChannel !== 'all' && (
@@ -679,10 +989,10 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
 
           {channels.length === 0 ? (
             <div className="flex-1 flex items-center justify-center text-xs text-slate-500 py-10">
-              暂无渠道统计数据
+              {distributionPeriodLabel}暂无渠道统计数据
             </div>
           ) : (
-            <div className="mt-3 sm:mt-4 space-y-2.5 flex-1 overflow-y-auto max-h-[290px] pr-1 ledger-scroll">
+            <div className="mt-3 space-y-2 flex-1 overflow-y-auto max-h-[290px] pr-1 ledger-scroll">
               {channels.map((item) => {
                 const isActive = selectedChannel === item.channel;
                 return (
@@ -735,20 +1045,20 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
           <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
             <span>覆盖渠道：{channels.length} 个</span>
             <span className="font-mono-num text-slate-700 font-medium">
-              合计 {formatCurrency(totalAmount)}
+              合计 {formatCurrency(distTotalAmount)}
             </span>
           </div>
         </div>
 
         {/* Card 2: Activity Item Distribution */}
-        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 flex flex-col">
-          <div className="flex items-center justify-between gap-2 pb-3 sm:pb-4 border-b border-slate-100">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 flex flex-col">
+          <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-100">
             <div>
-              <h2 className="text-base font-semibold text-slate-900">
+              <h3 className="text-base font-semibold text-slate-900">
                 活动事项分布
-              </h2>
+              </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                按活动/任务汇总收益排行，点击可联动筛选明细
+                按活动/任务汇总收益排行，点击联动筛选
               </p>
             </div>
             {selectedActivity !== 'all' && (
@@ -764,10 +1074,10 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
 
           {activities.length === 0 ? (
             <div className="flex-1 flex items-center justify-center text-xs text-slate-500 py-10">
-              暂无活动事项统计数据
+              {distributionPeriodLabel}暂无活动事项统计数据
             </div>
           ) : (
-            <div className="mt-3 sm:mt-4 space-y-2.5 flex-1 overflow-y-auto max-h-[290px] pr-1 ledger-scroll">
+            <div className="mt-3 space-y-2 flex-1 overflow-y-auto max-h-[290px] pr-1 ledger-scroll">
               {activities.map((item) => {
                 const isActive = selectedActivity === item.activity;
                 return (
@@ -821,7 +1131,93 @@ export const EarningsChartPanel: React.FC<EarningsChartPanelProps> = ({
           <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
             <span>覆盖活动：{activities.length} 项</span>
             <span className="font-mono-num text-slate-700 font-medium">
-              合计 {formatCurrency(totalAmount)}
+              合计 {formatCurrency(distTotalAmount)}
+            </span>
+          </div>
+        </div>
+
+        {/* Card 3: Expense Destination Distribution */}
+        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 flex flex-col md:col-span-2 xl:col-span-1">
+          <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-100">
+            <div>
+              <h3 className="text-base font-semibold text-slate-900">
+                消费事项分布
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                追踪优惠消费去向与场景占比，点击联动筛选
+              </p>
+            </div>
+            {selectedExpense !== 'all' && (
+              <button
+                type="button"
+                onClick={() => onSelectExpense('all')}
+                className="text-xs font-medium text-emerald-700 hover:text-emerald-800 whitespace-nowrap min-h-[36px] px-2 cursor-pointer"
+              >
+                查看全部
+              </button>
+            )}
+          </div>
+
+          {expenses.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center text-xs text-slate-500 py-10">
+              {distributionPeriodLabel}暂无消费事项统计数据
+            </div>
+          ) : (
+            <div className="mt-3 space-y-2 flex-1 overflow-y-auto max-h-[290px] pr-1 ledger-scroll">
+              {expenses.map((item) => {
+                const isActive = selectedExpense === item.expense;
+                return (
+                  <button
+                    key={item.expense}
+                    type="button"
+                    onClick={() =>
+                      onSelectExpense(isActive ? 'all' : item.expense)
+                    }
+                    className={`w-full text-left group rounded-lg p-2.5 transition-colors cursor-pointer min-h-[44px] ${
+                      isActive ? 'bg-emerald-50/90' : 'hover:bg-slate-50 active:bg-slate-100'
+                    }`}
+                  >
+                    <div className="flex items-baseline justify-between gap-2 text-sm">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className={`font-medium truncate ${
+                            isActive ? 'text-emerald-800' : 'text-slate-800'
+                          }`}
+                          title={item.expense}
+                        >
+                          {item.expense}
+                        </span>
+                        <span className="text-xs text-slate-400 font-mono-num shrink-0">
+                          {item.count} 笔
+                        </span>
+                      </div>
+                      <div className="flex items-baseline gap-2 shrink-0 font-mono-num">
+                        <span className="text-xs text-slate-400">
+                          {item.share.toFixed(1)}%
+                        </span>
+                        <span className="font-semibold text-slate-900">
+                          {formatCurrency(item.amount)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="mt-1.5 h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-300 ${
+                          isActive ? 'bg-sky-700' : 'bg-sky-600/80 group-hover:bg-sky-700'
+                        }`}
+                        style={{ width: `${Math.max(2, item.share)}%` }}
+                      />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+            <span>覆盖去向：{expenses.length} 类</span>
+            <span className="font-mono-num text-slate-700 font-medium">
+              合计 {formatCurrency(distTotalAmount)}
             </span>
           </div>
         </div>

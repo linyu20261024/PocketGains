@@ -1,13 +1,22 @@
 import * as XLSX from 'xlsx';
 import {
+  ChartGranularity,
   ColumnMapping,
   EarningInput,
   EarningRecord,
   EntrySourceType,
   ImportCandidateRow,
   ParsedImportPreview,
+  PeriodBucketPoint,
+  SortDirection,
 } from '../types/earnings';
-import { buildChannelBreakdown, buildChartSeries } from './analytics';
+import {
+  BucketGranularity,
+  buildActivityBreakdown,
+  buildChannelBreakdown,
+  buildChartSeries,
+  buildExpenseBreakdown,
+} from './analytics';
 import { computeDedupeKey } from './dedupe';
 
 const HEADER_SYNONYMS: Record<keyof ColumnMapping, string[]> = {
@@ -1085,8 +1094,455 @@ export function exportToExcel(records: EarningRecord[]): void {
   wsChannel['!cols'] = [{ wch: 16 }, { wch: 14 }, { wch: 10 }, { wch: 16 }];
   XLSX.utils.book_append_sheet(wb, wsChannel, '渠道汇总');
 
+  const activityBreakdown = buildActivityBreakdown(records);
+  const activityRows = activityBreakdown.map((a) => ({
+    活动事项: a.activity,
+    累计收益金额: a.amount,
+    笔数: a.count,
+    金额占比百分比: `${a.share}%`,
+  }));
+  const wsActivity = XLSX.utils.json_to_sheet(activityRows);
+  wsActivity['!cols'] = [{ wch: 28 }, { wch: 14 }, { wch: 10 }, { wch: 16 }];
+  XLSX.utils.book_append_sheet(wb, wsActivity, '活动分布');
+
+  const expenseBreakdown = buildExpenseBreakdown(records);
+  const expenseRows = expenseBreakdown.map((e) => ({
+    消费事项: e.expense,
+    累计收益金额: e.amount,
+    笔数: e.count,
+    金额占比百分比: `${e.share}%`,
+  }));
+  const wsExpense = XLSX.utils.json_to_sheet(expenseRows);
+  wsExpense['!cols'] = [{ wch: 26 }, { wch: 14 }, { wch: 10 }, { wch: 16 }];
+  XLSX.utils.book_append_sheet(wb, wsExpense, '消费分布');
+
   const dateTag = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `零散收益统计_${dateTag}.xlsx`);
+}
+
+export interface AnalyticsExportPayload {
+  records: EarningRecord[];
+  distributionRecords: EarningRecord[];
+  distributionPeriodLabel: string;
+  granularity: ChartGranularity;
+  cumulativeGranularity: BucketGranularity;
+  chartSort: SortDirection;
+  activeSeries: PeriodBucketPoint[];
+}
+
+export function exportAnalyticsToExcel(payload: AnalyticsExportPayload): void {
+  const {
+    records,
+    distributionRecords,
+    distributionPeriodLabel,
+    granularity,
+    cumulativeGranularity,
+    chartSort,
+    activeSeries,
+  } = payload;
+
+  const wb = XLSX.utils.book_new();
+
+  const viewNameMap: Record<ChartGranularity, string> = {
+    daily: '每日趋势',
+    monthly: '每月趋势',
+    yearly: '每年趋势',
+    cumulative: `累计(${cumulativeGranularity === 'daily' ? '按日' : cumulativeGranularity === 'monthly' ? '按月' : '按年'})`,
+  };
+
+  // Sheet 1: Current Trend View
+  const currentTrendRows = activeSeries.map((pt) => ({
+    统计口径: viewNameMap[granularity],
+    时间节点: pt.key,
+    当期收益金额: pt.periodAmount,
+    截至该期累计收益: pt.cumulativeAmount,
+    笔数: pt.count,
+  }));
+  const wsCurrent = XLSX.utils.json_to_sheet(
+    currentTrendRows.length > 0
+      ? currentTrendRows
+      : [{ 统计口径: viewNameMap[granularity], 时间节点: '暂无数据', 当期收益金额: 0, 截至该期累计收益: 0, 笔数: 0 }]
+  );
+  wsCurrent['!cols'] = [{ wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 10 }];
+  XLSX.utils.book_append_sheet(wb, wsCurrent, '当前趋势分析');
+
+  // Sheet 2-4: Daily / Monthly / Yearly complete trend tables
+  const appendTrendSheet = (
+    g: 'daily' | 'monthly' | 'yearly',
+    sheetName: string,
+    colTitle: string
+  ) => {
+    const s = buildChartSeries(records, g, chartSort);
+    const rows = s.map((pt) => ({
+      [colTitle]: pt.key,
+      当期收益金额: pt.periodAmount,
+      截至该期累计收益: pt.cumulativeAmount,
+      笔数: pt.count,
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{ wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 10 }];
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  };
+
+  appendTrendSheet('daily', '每日收益趋势', '日期');
+  appendTrendSheet('monthly', '每月收益趋势', '月份');
+  appendTrendSheet('yearly', '每年收益趋势', '年份');
+
+  // Sheet 5: Channel Breakdown (under selected distribution period)
+  const channels = buildChannelBreakdown(distributionRecords);
+  const wsChannels = XLSX.utils.json_to_sheet(
+    channels.map((c) => ({
+      统计周期: distributionPeriodLabel,
+      支付平台渠道: c.channel,
+      收益金额: c.amount,
+      笔数: c.count,
+      金额占比百分比: `${c.share}%`,
+    }))
+  );
+  wsChannels['!cols'] = [{ wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 10 }, { wch: 16 }];
+  XLSX.utils.book_append_sheet(wb, wsChannels, '支付平台渠道分布');
+
+  // Sheet 6: Activity Breakdown
+  const activities = buildActivityBreakdown(distributionRecords);
+  const wsActivities = XLSX.utils.json_to_sheet(
+    activities.map((a) => ({
+      统计周期: distributionPeriodLabel,
+      活动事项: a.activity,
+      收益金额: a.amount,
+      笔数: a.count,
+      金额占比百分比: `${a.share}%`,
+    }))
+  );
+  wsActivities['!cols'] = [{ wch: 16 }, { wch: 28 }, { wch: 14 }, { wch: 10 }, { wch: 16 }];
+  XLSX.utils.book_append_sheet(wb, wsActivities, '活动事项分布');
+
+  // Sheet 7: Expense Breakdown
+  const expenses = buildExpenseBreakdown(distributionRecords);
+  const wsExpenses = XLSX.utils.json_to_sheet(
+    expenses.map((e) => ({
+      统计周期: distributionPeriodLabel,
+      消费事项: e.expense,
+      收益金额: e.amount,
+      笔数: e.count,
+      金额占比百分比: `${e.share}%`,
+    }))
+  );
+  wsExpenses['!cols'] = [{ wch: 16 }, { wch: 26 }, { wch: 14 }, { wch: 10 }, { wch: 16 }];
+  XLSX.utils.book_append_sheet(wb, wsExpenses, '消费事项分布');
+
+  // Sheet 8: Raw Records
+  const wsDetails = XLSX.utils.json_to_sheet(
+    records.map((r) => ({
+      日期时间: r.dateTime,
+      支付平台渠道: r.platformChannel,
+      消费事项: r.expenseItem,
+      活动事项: r.activityItem,
+      收益金额: r.rewardAmount,
+      门槛: r.threshold,
+      其他备注: r.notes,
+    }))
+  );
+  wsDetails['!cols'] = [
+    { wch: 18 },
+    { wch: 14 },
+    { wch: 24 },
+    { wch: 28 },
+    { wch: 12 },
+    { wch: 20 },
+    { wch: 26 },
+  ];
+  XLSX.utils.book_append_sheet(wb, wsDetails, '收益明细');
+
+  const dateTag = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `拾零账本_图表统计报告_${dateTag}.xlsx`);
+}
+
+export function exportChartSeriesToCsv(
+  series: PeriodBucketPoint[],
+  granularityLabel: string
+): void {
+  const headers = ['统计维度', '时间节点', '当期收益(元)', '截至该期累计(元)', '笔数'];
+  const escapeCell = (val: string | number) => {
+    const s = String(val ?? '');
+    if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+  const lines = [
+    headers.join(','),
+    ...series.map((pt) =>
+      [
+        granularityLabel,
+        pt.key,
+        pt.periodAmount.toFixed(2),
+        pt.cumulativeAmount.toFixed(2),
+        pt.count,
+      ]
+        .map(escapeCell)
+        .join(',')
+    ),
+  ];
+  const blob = new Blob(['\uFEFF' + lines.join('\r\n')], {
+    type: 'text/csv;charset=utf-8;',
+  });
+  triggerBlobDownload(
+    blob,
+    `拾零账本_收益趋势_${new Date().toISOString().slice(0, 10)}.csv`
+  );
+}
+
+export interface ChartPngExportOptions {
+  series: PeriodBucketPoint[];
+  granularity: ChartGranularity;
+  granularityTitle: string;
+  distributionPeriodLabel: string;
+  yMax: number;
+  yTickValues: number[];
+  totalAmount: number;
+  recordCount: number;
+  topChannels: { name: string; amount: number; share: number }[];
+  topActivities: { name: string; amount: number; share: number }[];
+  topExpenses: { name: string; amount: number; share: number }[];
+}
+
+export function exportChartToPng(options: ChartPngExportOptions): void {
+  const {
+    series,
+    granularity,
+    granularityTitle,
+    distributionPeriodLabel,
+    yMax,
+    yTickValues,
+    totalAmount,
+    recordCount,
+    topChannels,
+    topActivities,
+    topExpenses,
+  } = options;
+
+  if (series.length === 0) return;
+
+  const scale = 2;
+  const width = Math.max(960, Math.min(2400, 160 + series.length * 46));
+  const chartHeight = 320;
+  const footerHeight = 160;
+  const headerHeight = 96;
+  const totalHeight = headerHeight + chartHeight + footerHeight;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width * scale;
+  canvas.height = totalHeight * scale;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  ctx.scale(scale, scale);
+
+  // Background
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, width, totalHeight);
+
+  // Header
+  ctx.fillStyle = '#0F172A';
+  ctx.font = 'bold 20px system-ui, -apple-system, sans-serif';
+  ctx.fillText(`拾零账本 · ${granularityTitle}`, 32, 38);
+
+  ctx.fillStyle = '#64748B';
+  ctx.font = '13px system-ui, -apple-system, sans-serif';
+  const exportedDate = new Date().toISOString().slice(0, 10);
+  ctx.fillText(
+    `趋势范围总计：¥${totalAmount.toFixed(2)}（${recordCount} 笔）  ·  分布统计周期：${distributionPeriodLabel}  ·  导出日期：${exportedDate}`,
+    32,
+    64
+  );
+
+  // Divider line
+  ctx.strokeStyle = '#E2E8F0';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(32, headerHeight - 12);
+  ctx.lineTo(width - 32, headerHeight - 12);
+  ctx.stroke();
+
+  // Plot area bounds
+  const padLeft = 82;
+  const padRight = 36;
+  const padTop = headerHeight + 22;
+  const plotH = chartHeight - 66;
+  const plotW = width - padLeft - padRight;
+
+  const getY = (val: number) => {
+    const clamped = Math.max(0, Math.min(val, yMax));
+    return padTop + plotH - (clamped / yMax) * plotH;
+  };
+  const getX = (idx: number) => {
+    if (series.length <= 1) return padLeft + plotW / 2;
+    const step = plotW / series.length;
+    return padLeft + step * idx + step / 2;
+  };
+
+  // Gridlines & Y-Axis ticks
+  ctx.font = '12px ui-monospace, SFMono-Regular, Menlo, monospace';
+  ctx.textAlign = 'right';
+  for (const val of yTickValues) {
+    const y = getY(val);
+    ctx.strokeStyle = val === 0 ? '#CBD5E1' : '#F1F5F9';
+    ctx.beginPath();
+    ctx.moveTo(padLeft, y);
+    ctx.lineTo(width - padRight, y);
+    ctx.stroke();
+
+    ctx.fillStyle = '#64748B';
+    const label = val === 0 ? '¥0' : Number.isInteger(val) ? `¥${val}` : `¥${val.toFixed(1)}`;
+    ctx.fillText(label, padLeft - 10, y + 4);
+  }
+
+  // Left vertical axis line
+  ctx.strokeStyle = '#CBD5E1';
+  ctx.beginPath();
+  ctx.moveTo(padLeft, padTop);
+  ctx.lineTo(padLeft, padTop + plotH);
+  ctx.stroke();
+
+  const colW = plotW / series.length;
+  const barW = Math.max(12, Math.min(44, colW * 0.54));
+
+  if (granularity === 'cumulative') {
+    if (series.length > 1) {
+      ctx.beginPath();
+      series.forEach((pt, idx) => {
+        const x = getX(idx);
+        const y = getY(pt.cumulativeAmount);
+        if (idx === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.lineTo(getX(series.length - 1), padTop + plotH);
+      ctx.lineTo(getX(0), padTop + plotH);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(16, 185, 129, 0.14)';
+      ctx.fill();
+
+      ctx.beginPath();
+      series.forEach((pt, idx) => {
+        const x = getX(idx);
+        const y = getY(pt.cumulativeAmount);
+        if (idx === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.strokeStyle = '#047857';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    }
+
+    series.forEach((pt, idx) => {
+      const cx = getX(idx);
+      const cy = getY(pt.cumulativeAmount);
+      ctx.beginPath();
+      ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+      ctx.fillStyle = '#047857';
+      ctx.fill();
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      if (colW >= 48 || idx === series.length - 1) {
+        ctx.fillStyle = '#065F46';
+        ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(`¥${Number(pt.cumulativeAmount.toFixed(1))}`, cx, Math.max(padTop - 4, cy - 10));
+      }
+    });
+  } else {
+    series.forEach((pt, idx) => {
+      const cx = getX(idx);
+      const y = getY(pt.periodAmount);
+      const barH = pt.periodAmount > 0 ? Math.max(2, padTop + plotH - y) : 0;
+      if (barH > 0) {
+        const bx = cx - barW / 2;
+        const by = padTop + plotH - barH;
+        const r = Math.min(3, barW / 2, barH);
+        ctx.fillStyle = '#10B981';
+        ctx.beginPath();
+        ctx.moveTo(bx, by + barH);
+        ctx.lineTo(bx, by + r);
+        ctx.quadraticCurveTo(bx, by, bx + r, by);
+        ctx.lineTo(bx + barW - r, by);
+        ctx.quadraticCurveTo(bx + barW, by, bx + barW, by + r);
+        ctx.lineTo(bx + barW, by + barH);
+        ctx.closePath();
+        ctx.fill();
+      }
+      if (pt.periodAmount > 0 && (colW >= 42 || idx === series.length - 1)) {
+        ctx.fillStyle = '#475569';
+        ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(
+          `¥${Number.isInteger(pt.periodAmount) ? pt.periodAmount : Number(pt.periodAmount.toFixed(1))}`,
+          cx,
+          Math.max(padTop - 4, padTop + plotH - barH - 6)
+        );
+      }
+    });
+  }
+
+  // X-Axis labels
+  const labelStep = colW >= 46 ? 1 : Math.ceil(46 / Math.max(1, colW));
+  ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
+  ctx.textAlign = 'center';
+  series.forEach((pt, idx) => {
+    const isLast = idx === series.length - 1;
+    const isFirst = idx === 0;
+    const tooClose = !isLast && labelStep > 1 && series.length - 1 - idx < Math.ceil(labelStep * 0.65);
+    if (isLast || (!tooClose && (isFirst || idx % labelStep === 0))) {
+      ctx.fillStyle = isLast ? '#0F172A' : '#64748B';
+      ctx.fillText(pt.label, getX(idx), padTop + plotH + 20);
+    }
+  });
+
+  // Bottom 3-column Breakdown Snapshot
+  const footerTop = headerHeight + chartHeight + 8;
+  ctx.strokeStyle = '#E2E8F0';
+  ctx.beginPath();
+  ctx.moveTo(32, footerTop);
+  ctx.lineTo(width - 32, footerTop);
+  ctx.stroke();
+
+  const cols = [
+    { title: `支付平台渠道 TOP3（${distributionPeriodLabel}）`, items: topChannels },
+    { title: `活动事项 TOP3（${distributionPeriodLabel}）`, items: topActivities },
+    { title: `消费事项去向 TOP3（${distributionPeriodLabel}）`, items: topExpenses },
+  ];
+  const colSpan = (width - 64) / 3;
+  cols.forEach((col, cIdx) => {
+    const x0 = 32 + cIdx * colSpan;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#0F172A';
+    ctx.font = 'bold 13px system-ui, -apple-system, sans-serif';
+    ctx.fillText(col.title, x0, footerTop + 26);
+
+    if (col.items.length === 0) {
+      ctx.fillStyle = '#94A3B8';
+      ctx.font = '12px system-ui, -apple-system, sans-serif';
+      ctx.fillText('暂无数据', x0, footerTop + 54);
+    } else {
+      col.items.slice(0, 3).forEach((item, rIdx) => {
+        const yRow = footerTop + 54 + rIdx * 28;
+        ctx.fillStyle = '#334155';
+        ctx.font = '12px system-ui, -apple-system, sans-serif';
+        const maxNameChars = 14;
+        const shortName =
+          item.name.length > maxNameChars ? `${item.name.slice(0, maxNameChars)}…` : item.name;
+        ctx.fillText(`${rIdx + 1}. ${shortName}`, x0, yRow);
+
+        ctx.fillStyle = '#047857';
+        ctx.font = '12px ui-monospace, SFMono-Regular, Menlo, monospace';
+        ctx.fillText(`¥${item.amount.toFixed(2)} (${item.share.toFixed(1)}%)`, x0 + 160, yRow);
+      });
+    }
+  });
+
+  canvas.toBlob((blob) => {
+    if (!blob) return;
+    triggerBlobDownload(blob, `拾零账本_收益趋势图_${exportedDate}.png`);
+  }, 'image/png');
 }
 
 export function exportToCsv(records: EarningRecord[]): void {

@@ -160,6 +160,70 @@ export function buildActivityBreakdown(records: EarningRecord[]): ActivityBreakd
     .sort((a, b) => b.amount - a.amount);
 }
 
+export interface ExpenseBreakdownItem {
+  expense: string;
+  amount: number;
+  count: number;
+  share: number; // 0-100
+}
+
+export function buildExpenseBreakdown(records: EarningRecord[]): ExpenseBreakdownItem[] {
+  const total = records.reduce((sum, r) => sum + r.rewardAmount, 0);
+  const map = new Map<string, { amount: number; count: number }>();
+
+  for (const rec of records) {
+    const expense = rec.expenseItem?.trim() || '无消费事项';
+    const existing = map.get(expense) || { amount: 0, count: 0 };
+    existing.amount = Math.round((existing.amount + rec.rewardAmount) * 100) / 100;
+    existing.count += 1;
+    map.set(expense, existing);
+  }
+
+  return Array.from(map.entries())
+    .map(([expense, stats]) => ({
+      expense,
+      amount: stats.amount,
+      count: stats.count,
+      share: total > 0 ? Math.round((stats.amount / total) * 1000) / 10 : 0,
+    }))
+    .sort((a, b) => b.amount - a.amount);
+}
+
+export function getAvailablePeriodKeys(
+  records: EarningRecord[],
+  mode: ChartGranularity
+): string[] {
+  if (mode === 'cumulative') return [];
+  const keys = new Set<string>();
+  for (const rec of records) {
+    if (!rec.dateTime || rec.dateTime.length < 4) continue;
+    keys.add(getBucketKey(rec.dateTime, mode));
+  }
+  return Array.from(keys).sort((a, b) => b.localeCompare(a));
+}
+
+export function filterRecordsByPeriod(
+  records: EarningRecord[],
+  mode: ChartGranularity,
+  periodKey: string
+): EarningRecord[] {
+  if (mode === 'cumulative' || !periodKey) return records;
+  return records.filter((rec) => {
+    if (!rec.dateTime || rec.dateTime.length < 4) return false;
+    return getBucketKey(rec.dateTime, mode) === periodKey;
+  });
+}
+
+export function formatPeriodLabel(mode: ChartGranularity, periodKey: string): string {
+  if (mode === 'cumulative' || !periodKey) return '全部累计';
+  if (mode === 'yearly') return `${periodKey}年`;
+  if (mode === 'monthly') {
+    const [y, m] = periodKey.split('-');
+    return `${y}年${Number(m)}月`;
+  }
+  return periodKey;
+}
+
 export interface KpiMetrics {
   totalCumulative: number;
   currentYearAmount: number;
